@@ -1,0 +1,3333 @@
+<?php 
+namespace App\Http\Controllers\Api;
+use App\Http\Controllers\Controller;
+use Dingo\Api\Http\Request;
+use Dingo\Api\Http\Response;
+use Tymon\JWTAuth\Exceptions\JWTException;
+use Illuminate\Support\Contracts\ArrayableInterface;
+use Illuminate\Support\Facades\Text;
+use Illuminate\Support\Facades\Redirect;
+use JWTAuth;
+use DB;
+use App;
+use Image;
+use URL;
+use Hash;
+use Twilio;
+use Services_Twilio;
+use PDF;
+use PushNotification;
+use App\Model\cart_info;
+use App\Model\users;
+use App\Model\Users\cards;
+use App\Model\api_Model;
+use App\Model\vendors;
+use App\Model\favorite_vendors;
+use App\Model\cart_model;
+use App\Model\cart_outlet;
+use App\Model\return_orders;
+use App\Model\orders;
+use App\Model\return_orders_log;
+use App\Model\return_reasons;
+use App\Model\transaction;
+use App\Model\Users\addresstype;
+use Paypal;
+use PayPal\Api\Item;
+use PayPal\Api\ItemList;
+use PayPal\Api\Details;
+use PayPal\Api\Capture;
+use PayPal\Api\Payment;
+use PayPal\Api\Amount;
+use PayPal\Api\Refund;
+use App\Model\outlets;
+use App\Model\cities;
+use App\Model\zones;
+use PayPal\Api\Authorization;
+use Session;
+use LaravelFCM\Message\OptionsBuilder;
+use LaravelFCM\Message\PayloadDataBuilder;
+use LaravelFCM\Message\PayloadNotificationBuilder;
+use FCM;
+use Braintree_Configuration;
+use Braintree_Transaction;
+use Braintree_ClientToken;
+use Braintree_Customer;
+
+class Ordercheckout extends Controller
+{
+    const USER_SIGNUP_EMAIL_TEMPLATE = 1;
+    const USERS_WELCOME_EMAIL_TEMPLATE = 3;
+    const USERS_FORGOT_PASSWORD_EMAIL_TEMPLATE = 6;
+    const USER_CHANGE_PASSWORD_EMAIL_TEMPLATE = 13;
+    const OTP_EMAIL_TEMPLATE = 14;
+    const ORDER_MAIL_TEMPLATE = 5;
+    const ORDER_MAIL_VENDOR_TEMPLATE = 16;
+    const RETURN_STATUS_CUSTOMER_EMAIL_TEMPLATE = 17;
+    const ORDER_STATUS_UPDATE_USER = 18;
+    
+    /**
+     * Create a new controller instance.
+     *
+     * @return void
+     */
+    private $_apiContext;
+    public function __construct(Request $data)
+    {   
+		$post_data = $data->all();
+		if(isset($post_data['language']) && $post_data['language']!='' && $post_data['language']==2)
+			   {
+				   App::setLocale('ch');
+			   }
+			   else {
+				   App::setLocale('en');
+			   }
+        $this->_apiContext = PayPal::ApiContext(getAppPaymentConfig()->merchant_key,getAppPaymentConfig()->merchant_secret_key);
+        $this->_apiContext->setConfig(array(
+            'mode' => 'sandbox',
+            'service.EndPoint' => 'https://api.sandbox.paypal.com',
+            'http.ConnectionTimeOut' => 30,
+            'log.LogEnabled' => true,
+            'log.FileName'   => storage_path('logs/paypal.log'),
+            'log.LogLevel'   => 'FINE'
+        ));
+    }
+    
+     /*
+     * order detail
+     */
+    public function index(Request $data)
+	{
+
+		$post_data = $data->all();
+		$cart_items = $this->calculate_cart($post_data['language'],$post_data['user_id']);
+		$address_list = $this->get_address($post_data['language'],$post_data['user_id']);
+		$gateway_list = $this->get_payment_gateways($post_data['language']);
+		$delivery_slots = $this->get_delivery_slots();
+		$delivery_settings = $this->get_delivery_settings();
+		$time_interval = $this->get_delivery_time_interval();
+		$avaliable_slot_mob = $this->get_avaliable_slot_mobl();
+		$outlet_detail = $this->get_outlet_detail($post_data['language'],$post_data['user_id']);
+		$address_type = $this->address_type();
+		$date = date('Y-m-d'); //today date
+		$weekOfdays = array();
+		$weeks = array();
+		$uweek = array();
+		$deliver_slot_array = array();
+		$datetime = new \DateTime();
+		//$datetime->modify('-1 day');
+
+
+		$listItem = array('<li class="active">', '</li>');
+		$i = 0;
+		$weekarray = array();
+		while (true)
+		{
+			if ($i === 7) break;
+			if ($datetime->format('N') === '7' && $i === 0)
+			{
+				$datetime->add(new \DateInterval('P1D'));
+				continue;
+			}
+			$weekarray[] = $datetime->format('N');
+			$j = $datetime->format('N');
+
+			$jj = $datetime->format('N');
+			$datetime->add(new \DateInterval('P1D'));
+			$wk_day = date('N', strtotime($date));
+			$weekOfdays[$j] = date('d/m/Y', strtotime($date));
+			$weekOfdays_mob[] = date('d/m/Y', strtotime($date));
+			$weekday = date('l', strtotime($date));
+			
+			$weakdaysarray =  getDaysWeekArray();
+
+			foreach($time_interval as $time)
+			{
+				
+				
+				$slot_id = $this->check_value_exist($delivery_slots,$time->id,$j,'time_interval_id','day');
+
+				$deliver_slot_array[$weekOfdays[$j]][] = array(
+				"time"=>date('g:i a', strtotime($time->start_time)).' - '.date('g:i a', strtotime($time->end_time)),
+				"slot"=>$slot_id,
+				"time_interval_id"=>$time->id,
+				"key"=>$weekOfdays[$j],
+				"day"=>$j,
+				"weekday" =>$weekday,
+				"date" => $date
+				);
+			}
+
+
+
+			$uj=$j;
+			if($uj==8){
+				$uweek[1] = date('l',strtotime($date));
+			}else {
+				$uweek[$uj] = date('l',strtotime($date));
+			}
+	
+			$weeks[$j] = date('l',strtotime($date));
+			$week_mob[] = trans('messages.'.date('l',strtotime($date)));
+			$date = date('Y-m-d', strtotime('+1 day', strtotime($date)));		
+			$i++;
+		}
+		    $uj=$j+1;
+
+
+		/** avilable slot  mobile **/
+		$date1 = date('Y-m-d');
+		$format_slot = array();
+		$iii =0;
+		foreach($uweek as $ukey=>$week)
+		{
+
+			foreach($avaliable_slot_mob as $key=>$mobile_slot)
+			{
+
+
+				if($mobile_slot->day == $ukey)
+				{
+					
+					$mobile_slot->week_mob_time = date('g:i a', strtotime($mobile_slot->start_time)).' - '.date('g:i a', strtotime($mobile_slot->end_time));
+					$format_slot[$iii]['week_date'] = date('d/m/Y', strtotime($date1));
+					$format_slot[$iii]['day'] = $week;
+
+
+
+					/** current day past time slot restriction **/
+					$start_time = explode('-',$mobile_slot->week_mob_time);
+					$stime=date('H:i:s',strtotime($start_time[0]));
+					$etime=date('H:i:s',strtotime($start_time[1]));
+					$td=date('d/m/Y', strtotime($date1));
+					$today=date('d/m/Y');
+					if ((time() >= strtotime($stime)) && (time() >= strtotime($etime)) && ($td==$today)) {
+						//$format_slot[$iii]['time'][] = array();
+					}
+					else if((time() > strtotime($stime)) && (time() < strtotime($etime)) && ($td==$today)){
+						$format_slot[$iii]['time'][] = $mobile_slot;
+					}
+					else {
+						$format_slot[$iii]['time'][] = $mobile_slot;
+					}
+					/** current day past time slot restriction end **/
+
+
+				}else {
+					$format_slot[$iii]['day'] = $week;
+					$format_slot[$iii]['week_date'] = date('d/m/Y', strtotime($date1));
+				}
+				
+			}
+			$date1 = date('d-m-Y', strtotime('+1 day', strtotime($date1)));
+			$iii++;
+		}
+		
+
+		/** avilable slot updated mobile **/
+		$avilable_slot_updated = array();
+		if(count($format_slot) > 0 ){
+			foreach($format_slot as $akey => $avilbale){
+				
+				$avilable_slot_updated[$akey]['day']=trans('messages.'.$avilbale['day']);
+				$avilable_slot_updated[$akey]['week_date']=$avilbale['week_date'];
+
+				if(isset($avilbale['time']) && $avilbale['time']!=''){
+				foreach($avilbale['time'] as $tkey => $utime){
+					$day_of_week=date('N', strtotime($avilbale['day']));
+						$slot_class = 1;
+						$avilable_slot_updated[$akey]['time'][$tkey]['status'] = 	$slot_class;
+						$avilable_slot_updated[$akey]['time'][$tkey]['week_mob_time'] = 	$utime->week_mob_time;
+						$avilable_slot_updated[$akey]['time'][$tkey]['slot_id'] = 	$utime->slot_id;
+						$avilable_slot_updated[$akey]['time'][$tkey]['time_interval_id'] = 	$utime->time_interval_id;
+				}
+			 }else {
+				 $avilable_slot_updated[$akey]['time']=array(); 
+			 }
+			}
+		}
+
+		/** avilable slot updated mobile end **/
+		$result = array("response" => array("httpCode" => 400 , "Message" => trans("messages.No cart items found"),"cart_items"=>array()));
+		if(count($cart_items['cart_items'])>0)
+		{
+			$result = array("response" => array("httpCode" => 200 , "Message" => "Cart details", "cart_items"=>$cart_items['cart_items'],"remaining_amount_to_checkout"=>$cart_items['remaining_amount_to_checkout'],"overall_minimum_order_amount"=>$cart_items['overall_minimum_order_amount'],"total"=>$cart_items['total'],"sub_total"=>$cart_items['sub_total'],"delivery_cost"=>$cart_items['delivery_cost'],"delivery_time"=>$cart_items['delivery_time'],"overall_admin_commission"=>$cart_items['overall_admin_commission'],"vendor_commission_percentage"=>$cart_items['vendor_commission_percentage'],"overall_vendor_commission"=>$cart_items['overall_vendor_commission'],"transaction_amount"=>$cart_items['transaction_amount'],"address_list"=>$address_list,"gateway_list"=>$gateway_list,'delivery_slots'=>$delivery_slots,'time_interval'=>$time_interval,'delivery_slot_array'=>$deliver_slot_array,'weekOfdays'=>$weekOfdays,'weekOfdays_mob'=>$weekOfdays_mob,'week_mob'=>$week_mob,'week'=>$weeks,'outlet_detail'=>$outlet_detail,'address_type'=>$address_type,'delivery_settings'=>$delivery_settings,'avaliable_slot_mob'=>$avilable_slot_updated));
+		}
+		return json_encode($result);
+	}
+    
+    public function get_avaliable_slot_mobl()
+    {
+        $available_slots = DB::select('SELECT dts.day,dti.start_time,dti.end_time,dts.id AS slot_id,dts.time_interval_id
+        FROM delivery_time_slots dts
+        LEFT JOIN delivery_time_interval dti ON dti.id = dts.time_interval_id');
+        return $available_slots;
+    }
+    public function get_delivery_settings()
+    {
+        $delivery_settings = DB::table('delivery_settings')
+        ->first();
+        return $delivery_settings;
+    }
+    public function address_type($language_id='')
+    {
+	       if($language_id == '')
+			   {
+				   $language_id = getCurrentLang();
+			   }
+			   
+         $query = '"address_infos"."language_id" = (case when (select count(*) as totalcount from address_infos where address_infos.language_id = '.$language_id.' and address_type.id = address_infos.address_id) > 0 THEN '.$language_id.' ELSE 1 END)';
+        $address_type=Addresstype::Leftjoin('address_infos','address_infos.address_id','=','address_type.id')
+                         ->select('address_type.*','address_infos.*') 
+                         ->whereRaw($query)
+                          ->where('active_status', 1)
+                         ->orderBy('sort_order', 'desc')
+                         ->get();
+                                         
+        return $address_type;
+    }
+    
+       public function check_value_exist($delivery_slots,$interval_id,$day,$key1,$key2)
+    {
+		$di=$day;
+		if($di==8){
+			$di=1;
+		}
+
+        foreach ($delivery_slots as $slots)
+        {
+
+        	
+        	
+            if (is_array($slots) && check_value_exist($delivery_slots, $interval_id,$di,$key1,$key2)) return $slots->id;
+            if (isset($slots->$key1) && $slots->$key1 == $interval_id && isset($slots->$key2) &&$slots->$key2 == $di) return $slots->id;
+       }
+        $di=$day+1;
+        return 0;
+    }
+    
+    public function get_outlet_detail($language,$user_id)
+    {
+		$query1 = 'outlet_infos.language_id = (case when (select count(outlet_infos.id) as totalcount from outlet_infos where outlet_infos.language_id = ' . $language . ' and outlets.id = outlet_infos.id) > 0 THEN ' . $language . ' ELSE 1 END)';
+    
+		$outlet_detail = DB::table('cart')
+				->select('cart_outlet.outlet_id','vendors.id as vendor_id','outlet_infos.contact_address','outlets.latitude','outlets.longitude','outlets.delivery_time')
+				->join('cart_outlet','cart_outlet.cart_id','=','cart.cart_id')
+				->join('outlets','cart_outlet.outlet_id','=','outlets.id')
+				->join('outlet_infos', 'outlets.id', '=', 'outlet_infos.id')
+				->join('vendors','vendors.id','=','outlets.vendor_id')
+				->where('cart.user_id',"=",$user_id)
+				->whereRaw($query1)
+				->get();
+        return $outlet_detail;
+    }
+    public function get_delivery_slots()
+    {
+        $delivery_slots = DB::table('delivery_time_slots')
+                ->select('*')
+                ->get();
+        return $delivery_slots;
+    }
+    
+    public function get_delivery_time_interval()
+    {
+        $time_interval = DB::table('delivery_time_interval')
+                ->select('*')
+                ->orderBy('start_time', 'asc')
+                ->get();
+        return $time_interval;
+    }
+    public function calculate_cart($language,$user_id)
+    {
+
+        $gateway_list = $this->get_payment_gateway(1,$language);
+        $delivery_settings = $this->get_delivery_settings();
+		$sub_total = $delivery_cost = $delivery_time = 0;
+		$overall_remaining_amount = 0; $overall_admin_commission = 0;
+		$overall_vendor_commission = 0; $vendor_commission_percentage = 0;$vendor_commission_per = 0;$overall_minimum_order_amount = 0;
+		$cart_data = cart_model::cart_outlets($language,$user_id);
+                $outlet_count = count($cart_data);
+		foreach($cart_data as $outlets){
+			$outlet_subtotal = 0;
+			$outlets->product_list = cart_model::cart_products($language,$outlets->cart_outlet_id);
+			foreach($outlets->product_list as $product)
+			{ 
+				$outlet_subtotal += $product->quantity * $product->discount_price;
+				$product_image = URL::asset('assets/front/'.Session::get('general')->theme.'/images/no_image.png');
+				if(file_exists(base_path().'/public/assets/admin/base/images/products/list/'.$product->product_image) && $product->product_image != '')
+				{
+					$product_image = url('/assets/admin/base/images/products/list/'.$product->product_image);
+				}
+				$product->product_image = $product_image;
+				$product->discount_price = number_format((float)$product->discount_price, 2, '.', '');
+			}
+			
+			//Now there is only one single delivery charge, not outlet based delivery cost
+			$outlets->delivery_cost = 0;
+			/*if($delivery_settings->on_off_status == 1)
+			{
+				if($delivery_settings->delivery_type == 1)
+				{
+					$outlets->delivery_cost = $delivery_settings->delivery_cost_fixed;
+				}
+				if($delivery_settings->delivery_type == 2)
+				{
+					$outlets->delivery_cost = $delivery_settings->flat_delivery_cost;
+				}
+			}*/
+			
+			$outlets->sub_total = number_format((float)$outlet_subtotal, 2, '.', '');
+			$outlets->total = number_format((float)($outlet_subtotal + $outlets->delivery_cost), 2, '.', '');
+			$sub_total += $outlet_subtotal;
+			$delivery_cost += $outlets->delivery_cost;
+			$delivery_time += $outlets->delivery_time;
+			$remaining_amount = 0;
+			if( $outlets->total < $outlets->minimum_order_amount ){
+				$remaining_amount = round($outlets->minimum_order_amount - $outlets->total, 2);
+				$overall_remaining_amount += $remaining_amount;
+			}
+			$outlets->remaining_amount_to_checkout = $remaining_amount;
+                        $admin_commission = ((($outlets->sub_total)* $outlets->vendor_commission)/100);
+			$transaction_amount = number_format((float)($outlets->sub_total)*($gateway_list->commision/100)+$gateway_list->payment_fixed_amount,2,'.','');
+                        $outlets->transaction_amount = $transaction_amount;
+			$outlets->admin_commission = $admin_commission;
+                        $outlets->vendor_commission_percentage =$outlets->vendor_commission;
+			$overall_admin_commission += $admin_commission;
+                        $vendor_commission_per += $outlets->vendor_commission;
+                        $vendor_commission_percentage = number_format((float)$vendor_commission_per/$outlet_count,2,'.','');
+			$vendor_commission_percentage += $outlets->vendor_commission;
+			$vendor_commission = $outlets->sub_total - $admin_commission;
+			$outlets->vendor_commission_amount = $vendor_commission;
+			$overall_vendor_commission += $vendor_commission;
+		}
+
+		//If there is only one single delivery charge, and not outlet based delivery cost
+		if($delivery_settings->on_off_status == 1 && $delivery_cost == 0)
+		{
+			if($delivery_settings->delivery_type == 1)
+			{
+				$delivery_cost = $delivery_settings->delivery_cost_fixed;
+			}
+			if($delivery_settings->delivery_type == 2)
+			{
+				$delivery_cost = $delivery_settings->flat_delivery_cost;
+			}
+		}
+		$overall_minimum_order_amount = $delivery_settings->minimum_order_amount;
+
+		$total = number_format((float)($sub_total+$delivery_cost), 2, '.', '');
+                  $total_transaction_amount = number_format((float)(($total-$delivery_cost)*$gateway_list->commision)/100+$gateway_list->payment_fixed_amount,2,'.','');
+
+		$delivery_cost = number_format((float)$delivery_cost, 2, '.', '');
+        return array("cart_items"=>$cart_data,"remaining_amount_to_checkout" => $overall_remaining_amount,"overall_minimum_order_amount" => $overall_minimum_order_amount,"total"=>$total,"transaction_amount"=>$total_transaction_amount,"sub_total"=>$sub_total,"delivery_cost"=>$delivery_cost,"delivery_time"=>$delivery_time,"vendor_commission_percentage"=>$vendor_commission_percentage,"overall_vendor_commission"=>$overall_vendor_commission,"overall_admin_commission"=>$overall_admin_commission);
+    }
+    
+    public function get_address($language_id,$user_id)
+    {   
+		
+		$query = '"address_infos"."language_id" = (case when (select count(*) as totalcount from address_infos where address_infos.language_id = '.$language_id.' and address_type.id = address_infos.address_id) > 0 THEN '.$language_id.' ELSE 1 END)';
+        $address = DB::table('user_address')
+                    ->select('*','user_address.id as address_id','address_infos.name as address_type')
+                    ->where('user_id','=',$user_id)
+                   ->where('user_address.active_status','=',1)
+                    ->whereRaw($query)
+                    ->leftJoin('address_type','address_type.id','=','user_address.address_type')
+                     ->leftJoin('address_infos','address_infos.address_id','=','address_type.id')
+                    ->orderBy('user_address.id', 'desc')
+                    ->get();
+        if(count($address) > 0)
+        {
+            foreach($address as $key=>$val)
+            {
+                $address[$key]->city_id = ($val->city_id != '')?$val->city_id:'';
+                $address[$key]->country_id = ($val->country_id != '')?$val->country_id:'';
+                $address[$key]->postal_code = ($val->postal_code != '')?$val->postal_code:'';
+            }
+        }
+        return $address;
+    }
+    
+    public function get_payment_gateways($language_id)
+    {
+        $query = '"payment_gateways_info"."language_id" = (case when (select count(*) as totalcount from payment_gateways_info where payment_gateways_info.language_id = '.$language_id.' and payment_gateways.id = payment_gateways_info.payment_id) > 0 THEN '.$language_id.' ELSE 1 END)';
+        $gateways = DB::table('payment_gateways')
+                ->select('*','payment_gateways.id as payment_gateway_id')
+                ->leftJoin('payment_gateways_info','payment_gateways_info.payment_id','=','payment_gateways.id')
+                ->orderBy('payment_gateways.id', 'desc')
+                 ->where('active_status',"=",1)
+                ->whereRaw($query)
+                ->get();
+        return $gateways;
+    }
+    
+    public function get_payment_gateway($payment_gateway_id,$language_id)
+    {
+         $query = '"payment_gateways_info"."language_id" = (case when (select count(payment_gateways_info.language_id) as totalcount from payment_gateways_info where payment_gateways_info.language_id = '.$language_id.' and payment_gateways.id = payment_gateways_info.payment_id) > 0 THEN '.$language_id.' ELSE 1 END)';
+        $gateways = DB::table('payment_gateways')
+                ->select('payment_gateways.id','payment_gateways.payment_type','payment_gateways.merchant_key','payment_gateways.account_id','payment_gateways.payment_mode','payment_gateways.commision','payment_gateways.payment_fixed_amount','payment_gateways_info.name','payment_gateways.id as payment_gateway_id','currencies.currency_code')
+                ->leftJoin('payment_gateways_info','payment_gateways_info.payment_id','=','payment_gateways.id')
+                ->leftJoin('currencies','currencies.id','=','payment_gateways.currency_id')
+                ->orderBy('payment_gateways.id', 'desc')
+                ->where('payment_gateways.active_status',"=",1)
+                ->where('payment_gateways.id',"=",$payment_gateway_id)
+                ->whereRaw($query)
+                ->first();
+        return $gateways;
+    }
+    
+    public function get_payment_details(Request $data)
+    {
+        $post_data = $data->all();
+        $cart_items = $this->calculate_cart($post_data['language'],$post_data['user_id']);
+        $payment_gateway_detail = $this->get_payment_gateway($post_data['payment_gateway_id'],$post_data['language']);
+        $result = array("response"=>array("httpCode" => 400,"Message" => trans("messages.No cart items found"),"cart_items"=>array()));
+        if(count($cart_items)>0)
+        {
+            $result = array("response" => array("httpCode" => 200,"Message" => "Cart details", "cart_items"=>$cart_items['cart_items'],"remaining_amount_to_checkout"=>$cart_items['remaining_amount_to_checkout'],"total"=>$cart_items['total'],"sub_total"=>$cart_items['sub_total'],"delivery_cost"=>$cart_items['delivery_cost'],"delivery_time"=>$cart_items['delivery_time'],"payment_gateway_detail"=>$payment_gateway_detail));
+        }
+        return json_encode($result);
+
+    }
+    
+    public function offline_payment(Request $data)
+    { 
+		
+        $post_data = $data->all();
+        $current_date = strtotime(date('Y-m-d'));
+        $payment_array =  json_decode($post_data['payment_array']);
+        $payment_arrays =  json_decode($post_data['payment_array'],true);
+        $rules = array();
+        if($payment_array->order_type == 1)
+        {
+            $rules['delivery_address'] = 'required';
+        }
+        $validation = app('validator')->make($payment_arrays,$rules);
+        // process the validation
+        if ($validation->fails()) 
+        { 
+            foreach( $validation->errors()->messages() as $key => $value) 
+            {
+                $errors[] = is_array($value)?implode( ',',$value ):$value;
+            }
+            $errors = implode( ", \n ", $errors );
+            $result = array("response" => array("httpCode" => 400, "status" => false, "Message" => $errors, "Error" => trans("messages.Error List")));
+        }
+        else
+        { 
+            $total_amt = $payment_array->total;
+			if($payment_array->coupon_amount > 0)
+			{
+				$calculated_coupon_amount = 0;
+				foreach($payment_array->outlets as $out){
+					if($out->coupon_amount > 0){
+						$coupon_details = DB::table('coupons')
+										->select('coupons.id as coupon_id', 'coupon_type', 'offer_amount', 'coupon_code', 'start_date', 'end_date')
+										->leftJoin('coupon_outlet','coupon_outlet.coupon_id','=','coupons.id')
+										->where('coupons.id','=',$out->coupon_id)
+										->where('coupon_outlet.outlet_id','=',$out->outlet_id)
+										->first();
+						if(count($coupon_details) == 0)
+						{
+							$result = array("response" => array("httpCode" => 400,"Message" => "No coupons found"));
+							return json_encode($result);
+						}
+						else if((strtotime($coupon_details->start_date) <= $current_date) && (strtotime($coupon_details->end_date) >= $current_date))
+						{
+							$coupon_user_limit_details = DB::table('user_cart_limit')
+															->select('cus_order_count','user_limit','total_order_count','coupon_limit')
+															->where('customer_id','=',$post_data['user_id'])
+															->where('coupon_id','=',$out->coupon_id)
+															->first();
+							if(count($coupon_user_limit_details)>0)
+							{   
+								if($coupon_user_limit_details->cus_order_count >= $coupon_user_limit_details->user_limit)
+								{
+									$result = array("response" => array("httpCode" => 400,"Message" => "Max user limit has been crossed"));
+									return json_encode($result);
+								}
+								if($coupon_user_limit_details->total_order_count >= $coupon_user_limit_details->coupon_limit)
+								{
+									$result = array("response" => array("httpCode" => 400,"Message" => "Max coupon limit has been crossed"));
+									return json_encode($result);
+								}
+							}
+						}
+						else {
+							$result = array("response" => array("httpCode" => 400,"Message" => trans("messages.No coupons found")));
+							return json_encode($result);
+						}
+						$calculated_coupon_amount += $coupon_details->offer_amount;
+						if($out->coupon_amount != $coupon_details->offer_amount){
+							$result = array("response" => array("httpCode" => 400,"Message" => $out->vendor_name.': '.trans("messages.Coupon Amount Mismatched")));
+							return json_encode($result);
+						}
+					}
+				}
+				if($payment_array->total_without_coupon != $total_amt+$calculated_coupon_amount){
+					$result = array("response" => array("httpCode" => 400,"Message" => trans("messages.Coupon Amount Mismatched")));
+					return json_encode($result);
+				}
+			}
+
+            $order_id = DB::table('orders')->insertGetId(
+                [
+                'order_key' => str_random(32), 
+                'customer_id' => $payment_array->user_id, 
+                'total_amount' => $total_amt,
+                'created_date' => date("Y-m-d H:i:s"),
+                'order_status' => $payment_array->order_status,
+                'payment_status' => $payment_array->payment_status,
+                'payment_gateway_commission' => $payment_array->payment_gateway_commission,
+                'delivery_instructions' => $payment_array->delivery_instructions,
+                'delivery_address' => isset($payment_array->delivery_address)?$payment_array->delivery_address:'',
+                'payment_gateway_id' => $payment_array->payment_gateway_id,
+                'delivery_slot' => isset($payment_array->delivery_slot)?$payment_array->delivery_slot:'',
+                'delivery_date' => $payment_array->delivery_date,
+                'delivery_charge' => isset($payment_array->delivery_cost)?$payment_array->delivery_cost:'',
+                'admin_commission' => $payment_array->admin_commission,
+                'vendor_commission' => $payment_array->vendor_commission,
+                'order_type' => $payment_array->order_type,
+                'delivery_slot_type' => $payment_array->delivery_slot_type,
+                'delivery_slot_name' => "ASAP"
+                ]
+            );
+            $update_orders = Orders::find($order_id);
+            $update_orders->invoice_id = 'INV'.$order_id;
+            $update_orders->save();
+			DB::update('update users set current_balance = current_balance+? where id = ?', array($payment_array->admin_commission,1));
+			$order_outlet_id = array();
+//$vendor_names_list = '';
+			foreach($payment_array->outlets as $out){
+//$vendor_names_list .= $out->vendor_name . ', ';
+				$returned_id = DB::table('orders_outlet')->insertGetId(
+					[
+					'orders_id' => $order_id,
+					'vendor_id' => $out->store_id, 
+					'outlet_id' => $out->outlet_id,
+					'total_amount' => $out->total,
+					'delivery_charge' => $out->delivery_cost,
+					'coupon_id' => $out->coupon_id,
+					'coupon_amount' => $out->coupon_amount,
+					'coupon_type' => $out->coupon_type,
+					'admin_commission' => $out->admin_commission,
+					'vendor_commission' => $out->vendor_commission,
+					'order_key_formated' => "#OR".$out->vendor_key.$order_id,
+					'invoice_id' => "INV".$out->vendor_key.$order_id,
+					]
+				);
+				$order_outlet_id[$out->store_id] = $returned_id;
+				DB::update('update vendors set current_balance = current_balance+? where id = ?', array($out->vendor_commission,$out->store_id));
+				foreach($out->items as $item)
+				{
+					$values = array('item_id' =>$item->product_id,'item_cost'=>$item->discount_price,'item_unit'=>$item->quantity,'item_offer'=>$item->item_offer,'orders_outlet_id'=>$returned_id);
+					DB::table('orders_info')->insert($values);
+				}
+			}
+//$vendor_names_list = rtrim($vendor_names_list,', ') . '.';
+
+            $values = array('order_id' =>$order_id,
+                            'customer_id'=>$payment_array->user_id,
+                            'payment_status'=>"SUCCESS",
+                            'payment_type'=>"COD",
+                            'created_date' => date("Y-m-d H:i:s"),
+                            'currency_code'=>$payment_array->currency_code);
+            if($values)
+            {
+				DB::table('transaction')->insert($values);
+
+				$cart_data = DB::table('cart')
+								->select('cart.cart_id')
+								->where("cart.user_id",$payment_array->user_id)
+								->get();
+				foreach($cart_data as $cart){
+					$cart_outlet_data = DB::table('cart_outlet')
+									->select('cart_outlet.cart_outlet_id')
+									->where("cart_outlet.cart_id",$cart->cart_id)
+									->get();
+					foreach($cart_outlet_data as $cart_outlet){
+						DB::update('delete from cart_detail where cart_outlet_id='.$cart_outlet->cart_outlet_id);
+						DB::update('delete from cart_outlet where cart_outlet_id='.$cart_outlet->cart_outlet_id);
+					}
+					DB::update('delete from cart where cart_id='.$cart->cart_id);
+				}
+
+				//DB::update('delete from cart where user_id = ?', array($payment_array->user_id));
+                $result = array("response" => array("httpCode" => 200,"Message" => "Order initated success","order_id"=>$order_id));
+                //Email notification to customer, admin & vendors
+                $this->send_order_email($order_id,$payment_array->user_id,$post_data['language']);
+                $users = Users::find($payment_array->user_id); 
+
+                $order_title = 'Your order #OR'.$order_id.'  has been placed';
+                $notification_message = PushNotification::Message($order_title,array(
+                    'badge' => 1,
+                    'sound' => 'example.aiff',
+                    'actionLocKey' => $order_title,
+                    'id' => $order_id,
+                    'type' => 2,
+                    'title' => $order_title,
+                    'custom' => array('id' => $order_id,'type' => 2,'title' => $order_title)//If type 1 means offers and 2 means orders
+                ));
+
+				if($users->android_device_token != '')
+                {
+
+						$new_content = strip_tags($order_title);
+						$optionBuiler = new OptionsBuilder();
+						$optionBuiler->setTimeToLive(60*20);
+						$notificationBuilder = new PayloadNotificationBuilder($order_title);
+						$notificationBuilder->setBody($order_title)
+											->setSound('default')
+											->setClickAction('com.app.runrunfresh.Activites.NotificationsActivity')
+											->setBadge(1);		
+						$dataBuilder = new PayloadDataBuilder();
+						$dataBuilder->addData(['additional_params' =>$order_title,"message"=>$new_content,"title"=>$order_title]);
+						$option = $optionBuiler->build();
+						$notification = $notificationBuilder->build();
+						$data = $dataBuilder->build();
+						$token = $users->android_device_token;
+						$downstreamResponse = FCM::sendTo($token, $option, $notification, $data);
+						$downstreamResponse->numberSuccess();
+						if($downstreamResponse->numberSuccess() && $downstreamResponse->numberSuccess()==1){
+						}
+						$downstreamResponse->numberFailure();
+						$downstreamResponse->numberModification();
+						$downstreamResponse->tokensToDelete(); 
+						$downstreamResponse->tokensToModify(); 
+						$downstreamResponse->tokensToRetry();
+                }
+
+                if($users->ios_device_token != '')
+                {
+
+						$new_content = strip_tags($order_title);
+						$optionBuiler = new OptionsBuilder();
+						$optionBuiler->setTimeToLive(60*20);
+						$notificationBuilder = new PayloadNotificationBuilder($order_title);
+						$notificationBuilder->setBody($order_title)
+											->setSound('default')
+											->setClickAction('com.app.runrunfresh.Activites.NotificationsActivity')
+											->setBadge(1);		
+						$dataBuilder = new PayloadDataBuilder();
+						$dataBuilder->addData(['additional_params' =>$order_title,"message"=>$new_content,"title"=>$order_title]);
+						$option = $optionBuiler->build();
+						$notification = $notificationBuilder->build();
+						$data = $dataBuilder->build();
+						$token = $users->ios_device_token;
+						$downstreamResponse = FCM::sendTo($token, $option, $notification, $data);
+						$downstreamResponse->numberSuccess();
+						if($downstreamResponse->numberSuccess() && $downstreamResponse->numberSuccess()==1){
+						}
+						$downstreamResponse->numberFailure();
+						$downstreamResponse->numberModification();
+						$downstreamResponse->tokensToDelete(); 
+						$downstreamResponse->tokensToModify(); 
+						$downstreamResponse->tokensToRetry();
+                }
+
+				$vendor_names_list = '';
+				foreach($payment_array->outlets as $out){
+					$vendor_names_list .= $out->vendor_name . ', ';
+
+					//Internal Vendor Notifications Storing with notifications
+					$mess = "New Order Was Placed at ".$out->vendor_name;
+					$values = array('order_id' => $order_id,
+								'customer_id'=>$payment_array->user_id,
+								'message'=> $mess,
+								'vendor_id' => $out->store_id, 
+								'outlet_id' => $out->outlet_id,
+								'read_status'=> 0,
+								'notification_receiver_type'=> 2,
+								'created_date'=> date('Y-m-d H:i:s'));
+					DB::table('notifications')->insert($values);
+				}
+				$vendor_names_list = rtrim($vendor_names_list,', ') . '.';
+                //Internal Admin Notifications Storing with notifications
+                $mess = "New Order Was Placed at ".$vendor_names_list;
+                $values = array('order_id' => $order_id,
+                            'customer_id'=>$payment_array->user_id,
+                            'message'=> $mess,
+                            'read_status'=> 0,
+                            'notification_receiver_type'=> 1,
+                            'created_date'=> date('Y-m-d H:i:s'));
+                DB::table('notifications')->insert($values);
+            }
+            else {
+				$result = array("response"=>array("httpCode" => 400,"Message" => "Something went wrong"));
+			}
+        }
+        return json_encode($result);
+    }
+
+    
+    
+    public function online_payment(Request $data)
+    {
+        $post_data = $data->all();
+
+          if(isset($post_data['language']) && $post_data['language']==2)
+		{
+			App::setLocale('ch');
+		}
+		else 
+		{
+			App::setLocale('en');
+		}
+
+
+		$payment_array  = json_decode($post_data['payment_array']);
+		$payment_params = json_decode($post_data['payment_params']);
+		if(isset($payment_array->location_id) &&  ($payment_array->location_id!= '')){
+				$Zones = Zones::find($payment_array->location_id);
+				$location_area_code = $Zones->zone_code;
+		} else{
+		 
+		$location_area_code = 00;
+
+		}
+		 $site_name = Session::get("general")->site_name;
+
+                $date_format = date("dmy");
+		$total_amt = $payment_array->total;
+                $admin_commission = (($total_amt-$payment_array->delivery_cost)  * $payment_array->vendor_commission_percentage)/100;
+                $vendor_commission = $total_amt - $admin_commission;
+		$order_id = DB::table('orders')->insertGetId(
+			[
+				'order_key' => str_random(32), 
+				'customer_id' => $payment_array->user_id, 
+				'total_amount' => $total_amt,
+				'transaction_amount' => $payment_array->transaction_amount,
+				'created_date' => date("Y-m-d H:i:s"),
+				'order_status' => $payment_array->order_status,
+			        'coupon_amount' => $payment_array->coupon_amount,
+				'payment_status' => $payment_array->payment_status,
+				'payment_gateway_commission' => $payment_array->payment_gateway_commission,
+				'delivery_instructions' => $payment_array->delivery_instructions,
+				'delivery_address' => ($payment_array->delivery_address != '')?$payment_array->delivery_address:0,
+				'payment_gateway_id' => $payment_array->payment_gateway_id,
+				'delivery_slot' => ($payment_array->delivery_slot!='')?$payment_array->delivery_slot:0,
+				'delivery_date' =>isset($payment_array->delivery_date)?$payment_array->delivery_date:date("Y-m-d H:i:s"),
+				'delivery_charge' => $payment_array->delivery_cost,
+				'admin_commission' => $admin_commission ,
+				'vendor_commission' => $vendor_commission,
+				'vendor_commission_percentage' => 'N/A',
+				'overall_coupon_amount' => $payment_array->overall_coupon_amount,
+				'order_type' => $payment_array->order_type,
+				'delivery_slot_type' => $payment_array->delivery_slot_type,
+				'delivery_slot_name' => "ASAP"
+			]);
+
+		  $affected  =  DB::update('update orders_log set log_time = ? where order_id = ? and order_status = ?', array(date("Y-m-d H:i:s"),$order_id,1));
+
+		    foreach($payment_array->outlets as $j1=>$quantity_list){	
+			foreach($quantity_list->items as $j=>$countlist){			
+					$product_data = DB::table('products')
+								->select('products.quantity')
+								->where("products.id",$countlist->product_id)
+								->get();
+					$final_qty = $product_data[0]->quantity - $countlist->quantity;
+					$product_list  =  DB::update('update products set quantity = ? where id = ?', array($final_qty,$countlist->product_id));
+				} 				
+			}	
+			$update_orders = Orders::find($order_id);
+                        $update_orders->order_key_formated =  rtrim($location_area_code," ").$date_format.$order_id;
+                        $update_orders->invoice_id = 'INV'.$order_id;
+			$update_orders->save();
+
+			DB::update('update users set current_balance = current_balance+? where id = ?', array($payment_array->admin_commission,1));
+			$order_outlet_id = array();
+//			$vendor_names_list = '';
+            $total_admin_commission = 0;$total_vendor_commission =0;
+			foreach($payment_array->outlets as $out){ 
+				$outlets =  Outlets::find($out->outlet_id);
+				$city_id = $outlets->location_id;
+                                $admin_comission= ($out->total*$out->vendor_commission_percentage)/100;
+                                $vendor_comission= $out->total-$admin_comission;
+				$cities = zones::find($city_id);
+				$city_area_code = $cities->zone_code;
+                                $date_format = date("dmy");
+                                $order_key_formatted =  rtrim($city_area_code," ").$date_format.$order_id;
+				$returned_id = DB::table('orders_outlet')->insertGetId(
+					[
+					'orders_id' => $order_id,
+					'vendor_id' => $out->store_id, 
+					'outlet_id' => $out->outlet_id,
+					'total_amount' => $out->total,
+					'delivery_charge' => 0,
+					'coupon_id' => $out->coupon_id,
+					'coupon_amount' => $out->coupon_amount,
+					'coupon_type' => $out->coupon_type,
+					'admin_commission' => $admin_comission,
+					'vendor_commission' => $vendor_comission,
+                    'transaction_amount' => $out->transaction_amount,
+				     'order_key_formated' =>$order_key_formatted,
+					'invoice_id' => "INV".$out->vendor_key.$order_id,
+					]
+				);
+
+				$vendors    = Vendors::find($out->store_id);
+				//print_r($vendors );exit;
+        /* To send the push notification for Vendor start*/
+             
+
+              $subject  =  trans('messages.You have new order').  '['.$order_key_formatted.']';
+
+		        if(!empty($vendors->android_device_token)) {
+					 
+		            $optionBuiler = new OptionsBuilder();
+		                $optionBuiler->setTimeToLive(60*20);
+		                $notificationBuilder = new PayloadNotificationBuilder($subject);
+		                $notificationBuilder->setBody($subject)->setSound('default')->setClickAction('com.app.RunRunFreshVendor.Activities.Notifications')->setBadge(1);      
+		                $dataBuilder = new PayloadDataBuilder();
+		                $dataBuilder->addData(['order_id' => $order_id,"message" => $subject,"title" => $subject]);
+		                $option = $optionBuiler->build();
+		                $notification = $notificationBuilder->build();
+		                $data  = $dataBuilder->build();
+		                $token = $vendors->android_device_token;
+		                $downstreamResponse = FCM::sendTo($token, $option, $notification, $data);
+		                $downstreamResponse->numberSuccess();
+		                $downstreamResponse->numberFailure();
+		                $downstreamResponse->numberModification();
+		                $downstreamResponse->tokensToDelete(); 
+		                $downstreamResponse->tokensToModify(); 
+		                $downstreamResponse->tokensToRetry();
+		        }
+		         if(!empty($vendors->ios_device_token)) {
+					 
+		            $optionBuiler = new OptionsBuilder();
+		                $optionBuiler->setTimeToLive(60*20);
+		                $notificationBuilder = new PayloadNotificationBuilder($subject);
+		                $notificationBuilder->setBody($subject)->setSound('default')->setClickAction('com.app.RunRunFreshVendor.Activities.Notifications')->setBadge(1);      
+		                $dataBuilder = new PayloadDataBuilder();
+		                $dataBuilder->addData(['order_id' => $order_id,"message" => $subject,"title" => $subject]);
+		                $option = $optionBuiler->build();
+		                $notification = $notificationBuilder->build();
+		                $data  = $dataBuilder->build();
+		                $token = $vendors->ios_device_token;
+		                $downstreamResponse = FCM::sendTo($token, $option, $notification, $data);
+		                $downstreamResponse->numberSuccess();
+		                $downstreamResponse->numberFailure();
+		                $downstreamResponse->numberModification();
+		                $downstreamResponse->tokensToDelete(); 
+		                $downstreamResponse->tokensToModify(); 
+		                $downstreamResponse->tokensToRetry();
+		        }
+				$order_outlet_id[$out->store_id] = $returned_id;
+				DB::update('update vendors set current_balance = current_balance+? where id = ?', array($out->vendor_commission,$out->store_id));
+				foreach($out->items as $item)
+				{
+					$values = array('item_id' =>$item->product_id,'item_cost'=>$item->discount_price,'item_unit'=>$item->quantity,'item_offer'=>$item->item_offer,'orders_outlet_id'=>$returned_id);
+					DB::table('orders_info')->insert($values);
+				}
+                                $total_admin_commission += $admin_comission;   
+                                $total_vendor_commission = $total_amt - $total_admin_commission;   
+			}
+ $affected  = DB::update('update orders set admin_commission = ?,vendor_commission = ? where id = ?', array($total_admin_commission, $total_vendor_commission , $order_id));
+//			$vendor_names_list = rtrim($vendor_names_list,', ') . '.';
+
+			$result = array("response"=>array("httpCode" => 400,"Message" => "Something went wrong"));
+
+			$values = array('order_id'    => $order_id,
+							'customer_id' => $payment_array->user_id,
+							'payment_status' => "SUCCESS",
+							'payment_type' => $payment_params->payment_method,
+							'payer_id'=>$payment_params->payer_id,
+							'transaction_id'=>$payment_params->payment_id,
+							'country_code'=>$payment_params->country_code,
+							'cart_id'=>$payment_params->cart_id,
+							'created_date' => date("Y-m-d H:i:s"),
+							'currency_code'=>$payment_array->currency_code);
+			if($values)
+			{
+				DB::table('transaction')->insert($values);
+				$cart_data = DB::table('cart')
+								->select('cart.cart_id')
+								->where("cart.user_id",$payment_array->user_id)
+								->get();
+				foreach($cart_data as $cart){
+					$cart_outlet_data = DB::table('cart_outlet')
+									->select('cart_outlet.cart_outlet_id')
+									->where("cart_outlet.cart_id",$cart->cart_id)
+									->get();
+					foreach($cart_outlet_data as $cart_outlet){
+						DB::update('delete from cart_detail where cart_outlet_id='.$cart_outlet->cart_outlet_id);
+						DB::update('delete from cart_outlet where cart_outlet_id='.$cart_outlet->cart_outlet_id);
+					}
+					DB::update('delete from cart where cart_id='.$cart->cart_id);
+				}
+				$result = array("response" => array("httpCode" => 200,"Message" => "Order initated success","order_id"=>$order_id));
+				//Email notification to customer, admin & vendor
+			$this->send_order_email($order_id,$payment_array->user_id,$post_data['language']);
+				$users = Users::find($payment_array->user_id); 
+                $order_title = 'Your order '.$order_key_formatted.'  has been placed';
+				if($users->android_device_token != '')
+                {
+
+						$new_content = strip_tags($order_title);
+						$optionBuiler = new OptionsBuilder();
+						$optionBuiler->setTimeToLive(60*20);
+						$notificationBuilder = new PayloadNotificationBuilder($subject);
+						$notificationBuilder->setBody($order_title)
+											->setSound('default')
+											->setClickAction('com.app.runrunfresh.Activites.NotificationsActivity')
+											->setBadge(1);		
+						$dataBuilder = new PayloadDataBuilder();
+						$dataBuilder->addData(['additional_params' =>$order_title,"message"=>$order_title,"title"=>$order_title]);
+						$option = $optionBuiler->build();
+						$notification = $notificationBuilder->build();
+						$data = $dataBuilder->build();
+						$token = $users->android_device_token;
+						$downstreamResponse = FCM::sendTo($token, $option, $notification, $data);
+						$downstreamResponse->numberSuccess();
+						if($downstreamResponse->numberSuccess() && $downstreamResponse->numberSuccess()==1){
+						}
+						$downstreamResponse->numberFailure();
+						$downstreamResponse->numberModification();
+						$downstreamResponse->tokensToDelete(); 
+						$downstreamResponse->tokensToModify(); 
+						$downstreamResponse->tokensToRetry();
+                }
+
+                if($users->ios_device_token != '')
+                {
+
+						$new_content = strip_tags($order_title);
+						$optionBuiler = new OptionsBuilder();
+						$optionBuiler->setTimeToLive(60*20);
+						$notificationBuilder = new PayloadNotificationBuilder($subject);
+						$notificationBuilder->setBody($order_title)
+											->setSound('default')
+											->setClickAction('com.app.runrunfresh.Activites.NotificationsActivity')
+											->setBadge(1);		
+						$dataBuilder = new PayloadDataBuilder();
+						$dataBuilder->addData(['additional_params' =>$order_title,"message"=>$order_title,"title"=>$order_title]);
+						$option = $optionBuiler->build();
+						$notification = $notificationBuilder->build();
+						$data = $dataBuilder->build();
+						$token = $users->ios_device_token;
+						$downstreamResponse = FCM::sendTo($token, $option, $notification, $data);
+						$downstreamResponse->numberSuccess();
+						if($downstreamResponse->numberSuccess() && $downstreamResponse->numberSuccess()==1){
+						}
+						$downstreamResponse->numberFailure();
+						$downstreamResponse->numberModification();
+						$downstreamResponse->tokensToDelete(); 
+						$downstreamResponse->tokensToModify(); 
+						$downstreamResponse->tokensToRetry();
+                }
+
+				$vendor_names_list = '';
+				foreach($payment_array->outlets as $out){
+					$vendor_names_list .= $out->vendor_name . ', ';
+
+					//Internal Vendor Notifications Storing with notifications
+					$mess = "New Order Was Placed at ".$out->vendor_name;
+					$values = array('order_id' => $order_id,
+								'customer_id'=>$payment_array->user_id,
+								'message'=> $mess,
+								'vendor_id' => $out->store_id, 
+								'outlet_id' => $out->outlet_id,
+								'read_status'=> 0,
+								'notification_receiver_type'=> 2,
+								'created_date'=> date('Y-m-d H:i:s'));
+					DB::table('notifications')->insert($values);
+				}
+				$vendor_names_list = rtrim($vendor_names_list,', ') . '.';
+                //Internal Admin Notifications Storing with notifications
+                $mess = "New Order Was Placed at ".$vendor_names_list;
+                $values = array('order_id' => $order_id,
+                            'customer_id'=>$payment_array->user_id,
+                            'message'=> $mess,
+                            'read_status'=> 0,
+                            'notification_receiver_type'=> 1,
+                            'created_date'=> date('Y-m-d H:i:s'));
+                DB::table('notifications')->insert($values);
+			}
+		return json_encode($result);
+    }
+    
+    
+    
+    public function send_order_email216($id,$uid,$language)
+    {
+        $order_id   = $id;
+        $user_id    = $uid;
+        $language   = $language;
+        $user_array = array("user_id" => $user_id,"language"=>$language,"order_id" =>$order_id);
+        $response   = $this->get_order_detail($user_array);
+
+        $order_detail     = $response["order_detail"][0];
+        $delivery_details = $response["delivery_details"];
+        $logo             = url('/assets/front/'.Session::get("general")->theme.'/images/'.Session::get("general")->theme.'.png');
+        $delivery_date    = date("d F, l", strtotime($delivery_details[0]->delivery_date)); 
+        $delivery_time    = date('g:i a', strtotime($delivery_details[0]->start_time)).'-'.date('g:i a', strtotime($delivery_details[0]->end_time));
+        $site_name = Session::get("general")->site_name;
+        $currency_side   = getCurrencyPosition()->currency_side;
+        $currency_symbol = getCurrency($language); 
+		if($delivery_details[0]->order_type == 1)
+		{
+			$delivery_type   = 'DELIVERY ADDRESS :';
+			$delivery_address = ($delivery_details[0]->contact_address != '')?ucfirst($delivery_details[0]->contact_address):'-';
+		}
+		else {
+			$delivery_type   = 'PICKUP ADDRESS :';
+			$delivery_address = ($delivery_details[0]->contact_address != '')?ucfirst($delivery_details[0]->contact_address):'-';
+		}
+		$overall_sub_total = 0;
+		$overall_item      = '';
+		$overall_bill_form = '';
+		foreach($order_detail->outlets as $out){
+			$sub_total = 0;
+			$item      = '';
+			$overall_item .= '<tr>
+			<td style="font-size:15px; font-family:Verdana;color:#000; padding-left:10px; padding-top:10px">
+			BILL FROM:</td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			</tr>
+			<tr><td align="left" style="padding:5px 0; font-family:arial;padding-left:10px; padding-bottom:10px">
+			<img width="100" height="100" alt="'.ucfirst($out->vendor_name).'" src="'.base_path().'/public/assets/admin/base/images/vendors/list/'.$out->logo_image.'">
+			<div><span style=" font-size:12px;">'.wordwrap(ucfirst(strtolower($out->vendor_name)),40,"<br>\n").'</span><span style="font-size:10px;">,'.wordwrap(ucfirst($out->contact_address),70,"<br>\n").'<br/>'.ucfirst($out->contact_email).'</span></div></td><td></td><td></td><td></td><td></td>
+			</tr>';
+		//	$overall_bill_form .= ucfirst($out->vendor_name).','.wordwrap(ucfirst($out->contact_address),70,"<br>\n").'<br/>'.ucfirst($out->contact_email).'<hr/>';
+			foreach($out->items as $items)
+			{
+				if($currency_side == 1)
+				{
+					$item_cost = $currency_symbol.number_format((float)($items->item_cost),2,'.','');
+					$unit_cost = $currency_symbol.number_format((float)($item_cost*$items->item_unit),2,'.','');
+				}
+				else {
+					$item_cost = number_format((float)($items->item_cost),2,'.','').$currency_symbol;
+					$unit_cost = ($items->item_cost*$items->item_unit).$currency_symbol;
+				}
+				$item .= '<tr><td align="center" style="font-size:15px;padding:10px 0; font-family:dejavu sans,arial; font-weight:normal; border-bottom:1px solid #ccc;">'.wordwrap(ucfirst(strtolower($items->product_name)),40,"<br>\n").'</td><td align="center" style="font-size:15px;padding:10px 0;border-bottom:1px solid #ccc; font-family:dejavu sans,arial; font-weight:normal;">'.wordwrap(ucfirst(strtolower($items->description)),40,"<br>\n").'</td><td align="center" style="font-size:15px;padding:10px 0;border-bottom:1px solid #ccc; font-family:dejavu sans,arial; font-weight:normal;">'.$items->item_unit.'</td><td align="center" style="font-size:15px;padding:10px 0;border-bottom:1px solid #ccc; font-family:dejavu sans,arial; font-weight:normal;">'.$item_cost.'</td><td align="center" style="font-size:15px;padding:10px 0;border-bottom:1px solid #ccc; font-family:dejavu sans,arial; font-weight:normal;">'.$unit_cost.'</td></tr>';
+				$sub_total += $items->item_cost*$items->item_unit;
+			}
+			$overall_item .= $item;
+			$overall_sub_total += $sub_total;
+			if($currency_side == 1)
+			{
+				$delivery_charge = $currency_symbol.'0';
+			}
+			else {
+				$delivery_charge = '0'.$currency_symbol;
+			}
+			if($delivery_details[0]->order_type == 1)
+			{    
+				if($currency_side == 1)
+				{
+					$delivery_charge = $currency_symbol.number_format((float)($out->delivery_charge),2,'.','');
+				}
+				else {
+					$delivery_charge = number_format((float)($out->delivery_charge),2,'.','').$currency_symbol;
+				}
+			}
+			$coupon_offer = '';
+			if($currency_side == 1)
+			{
+				$total_amount    = $currency_symbol.$out->total_amount;
+				$sub_total       = $currency_symbol.$sub_total;
+				if($out->coupon_amount > 0){
+					$coupon_offer	 = '<tr>
+										<td style="font-size:15px; font-weight:bold; font-family:dejavu sans,arial; color:#000; line-height:28px;">Coupon Offer</td>
+										<td width="10"></td>
+										<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;" align="right">'.$currency_symbol.$out->coupon_amount.'</td>
+										</tr>';
+				}
+			}
+			else {
+				$total_amount    = $out->total_amount.$currency_symbol;
+				$sub_total       = $sub_total.$currency_symbol;
+				if($out->coupon_amount > 0){
+					$coupon_offer	 = '<tr>
+										<td style="font-size:15px; font-weight:bold; font-family:dejavu sans,arial; color:#000; line-height:28px;">Coupon Offer</td>
+										<td width="10"></td>
+										<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;" align="right">'.$out->coupon_amount.$currency_symbol.'</td>
+										</tr>';
+				}
+			}
+			$delivery_email   = $delivery_details[0]->email;
+			$delivery_address = ($delivery_details[0]->contact_address != '')?ucfirst($delivery_details[0]->contact_address):'-';
+			$site_name = Session::get("general")->site_name;
+			$html = '<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/><table width="700px" cellspacing="0" cellpadding="0" bgcolor="#fff" style="border:1px solid #ccc;">
+			<tbody>
+			<tr>
+			<td style="border-bottom:1px solid #ccc;">
+			<table style="padding-top: 25px; padding-bottom: 25px;" width="700px" cellspacing="0" cellpadding="0">
+			<tbody>
+			<tr>
+			<td width="20">&nbsp;</td>
+			<td>
+			<table>
+			<tr>
+			<td style="font-size:16px; font-weight:bold; font-family:Verdana; color:#000; padding-bottom:10px;">BILL FORM :</td>
+			</tr>
+			<tr>
+			<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;">'.ucfirst($out->vendor_name).','.wordwrap(ucfirst($out->contact_address),70,"<br>\n").'<br/>'.ucfirst($out->contact_email).'</td>
+			</tr>
+			</table>
+			</td>
+			<td align="right"><a title="'.$site_name.'" href="'.url('/').'"><img src="'.$logo.'" alt="'.$site_name.'" /></a></td>
+			<td width="20">&nbsp;</td>
+			</tr>
+			</tbody>
+			</table>
+			</td>
+			</tr>
+			<!-- end 1 tr -->
+			<tr>
+			<td>
+			<table style="padding-top: 25px; padding-bottom: 25px;" width="700px" cellspacing="0" cellpadding="0">
+			<tbody>
+			<tr>
+			<td width="20">&nbsp;</td>
+			<td colspan="4">
+			<table>
+			<tr>
+			<td style="font-size:16px; font-weight:bold; font-family:Verdana; color:#000; padding-bottom:10px;">'.$delivery_type.'</td>
+			</tr>
+			<tr>
+			<td style="font-size:16px; font-weight:500; font-family:arial; color:#666; line-height:28px;">'.wordwrap($delivery_address,70,"<br>\n").'
+			<br/>'.$delivery_email.'</td>
+			</tr>
+			</table>
+			</td>
+			<td align="right">
+			<table cellpadding="0" cellspacing="0">
+			<tr>
+			<td style="font-size:15px; font-weight:bold; font-family:Verdana; color:#000; line-height:28px;">Invoice</td>
+			<td></td>
+			<td align="left" style="font-size:16px; font-weight:500; font-family:arial; color:#666; line-height:28px;">'.$out->invoice_id.'</td>
+			</tr>
+			 <tr>
+			<td style="font-size:15px; font-weight:bold; font-family:Verdana; color:#000; line-height:28px;">Delivery date</td>
+			<td></td>
+			<td align="left" style="font-size:16px; font-weight:500; font-family:arial; color:#666; line-height:28px;">'.date('M d, Y', strtotime($delivery_details[0]->delivery_date)).'</td>
+			</tr>
+
+			<tr>
+			<td style="font-size:15px; font-weight:bold; font-family:Verdana; color:#000; line-height:28px;">Invoice date</td>
+			<td></td>
+			<td align="left" style="font-size:16px; font-weight:500; font-family:arial; color:#666; line-height:28px;">'.date('M d, Y', strtotime($order_detail->created_date)).'</td>
+			</tr>
+			<tr>
+			<td style="font-size:15px; font-weight:bold; font-family:arial; color:#000; line-height:28px; background:#d1d5d4; padding:0 9px;">Amount due</td>
+			<td></td>
+			<td align="left" style="font-size:16px; font-weight:500; font-family:arial; color:#666; line-height:28px;background:#d1d5d4;padding:0 9px;">'.$total_amount.'</td>
+			</tr>
+			</table>
+			</td>
+			<td width="20">&nbsp;</td>
+			</tr>
+			</tbody>
+			</table>
+			</td>
+			</tr>
+			<!-- end 2 tr -->
+			<tr>
+			<td>
+			<table cellpadding="0" cellspacing="0" width="100%">
+			<tr style="background:#d1d5d4;padding:0 9px;">
+			<td align="center" style=" padding:7px 0; font-size:17px; font-family:Verdana; font-weight:bold;">Item</th>
+			<td align="center" style=" padding:7px 0;font-size:17px; font-family:Verdana; font-weight:bold;">Description</th>
+			<td align="center" style=" padding:7px 0;font-size:17px; font-family:Verdana; font-weight:bold;">Quantity</th>
+			<td align="center" style=" padding:7px 0;font-size:17px; font-family:Verdana; font-weight:bold;">Unit cost</th>
+			<td align="center" style=" padding:7px 0;font-size:17px; font-family:Verdana; font-weight:bold;">Line total</th>
+			</tr>'.$item.'
+			</table>
+			</td>
+			</tr>
+			<!-- end 3 tr -->
+			<tr>
+			<td>
+			<table style="padding-top: 25px; padding-bottom: 25px;" width="787" cellspacing="0" cellpadding="0">
+			<tbody>
+			<tr>
+			<td width="20">&nbsp;</td>
+			<td>
+			</td>
+			<td align="right">
+			<table cellspacing="0" cellpadding="0">
+			<tbody>
+			<tr>
+			<td style="font-size:15px; font-weight:bold; font-family:dejavu sans,arial; color:#000; line-height:28px;">SUBTOTAL</td>
+			<td width="10"></td>
+			<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;" align="right">'.$sub_total.'</td>
+			</tr>
+			<tr>
+			<td style="font-size:15px; font-weight:bold; font-family:dejavu sans,arial; color:#000; line-height:28px;">Delivery fee</td>
+			<td width="10"></td>
+			<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;" align="right">'.$delivery_charge.'</td>
+			</tr>
+			'.$coupon_offer.'
+			<tr>
+			<td style="font-size:15px; font-weight:bold; font-family:dejavu sans,arial; color:#000; line-height:28px; background:#d1d5d4; padding:0 9px;">TOTAL</td>
+			<td style="background:#d1d5d4;padding:0 9px;" width="10"></td>
+			<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;background:#d1d5d4;padding:0 9px;" align="right">'.$total_amount.'</td>
+			</tr>
+			</tbody></table>
+			</td>
+			<td width="20">&nbsp;</td>
+			</tr>
+			</tbody>
+			</table>
+			</td>
+			</tr>
+			<tr>
+			<td>
+			<table>
+			<tr>
+			<td width="20">&nbsp;</td>
+			<td width="20">&nbsp;</td>
+			</tr>
+			</tbody>
+			</table>';
+			$pdf = App::make('dompdf.wrapper');
+			$pdf->loadHTML($html)->save(base_path().'/public/assets/front/'.Session::get("general")->theme.'/images/invoice/'.$out->invoice_id.'.pdf');
+			//$attachment[] = base_path().'/public/assets/front/'.Session::get("general")->theme.'/images/invoice/'.$out->invoice_id.'.pdf';
+
+			/** Send Email To vendor here **/
+			$vendor_mail = $out->email;
+//$vendor_mail = 'sumiran.das@nextbrainitech.com';
+			$subject     = getAppConfig()->site_name.' New Order Placed & Confirmation - ['.$out->invoice_id .']';
+			$template    = DB::table('email_templates')
+							->select('*')
+							->where('template_id','=',self::ORDER_MAIL_VENDOR_TEMPLATE)
+							->get();
+			if(count($template))
+			{
+				$from = $template[0]->from_email;
+				$from_name=$template[0]->from;
+				//$subject = $template[0]->subject;
+				if(!$template[0]->template_id)
+				{
+					$template = 'mail_template';
+					$from     = getAppConfigEmail()->contact_mail;
+					$subject  = getAppConfig()->site_name.' New Order Placed & Confirmation - ['.$out->invoice_id .']';
+					$from_name = "";
+				}
+				$content = array("order" => array('name' =>$out->vendor_name,'data'=>$html));
+				$email = smtp($from,$from_name,$vendor_mail,$subject,$content,$template);
+			}
+		}
+		//Generating the admin and user INVOICE
+		$coupon_offer = '';
+		if($currency_side == 1)
+		{
+			$total_amount    = $currency_symbol.$order_detail->total_amount;
+			$sub_total       = $currency_symbol.$overall_sub_total;
+			if($order_detail->coupon_amount > 0){
+				$coupon_offer	 = '<tr>
+									<td style="font-size:15px; font-weight:bold; font-family:dejavu sans,arial; color:#000; line-height:28px;">Coupon Offer</td>
+									<td width="10"></td>
+									<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;" align="right">'.$currency_symbol.$order_detail->coupon_amount.'</td>
+									</tr>';
+			}
+		}
+		else {
+			$total_amount    = $order_detail->total_amount.$currency_symbol;
+			$sub_total       = $overall_sub_total.$currency_symbol;
+			if($order_detail->coupon_amount > 0){
+				$coupon_offer	 = '<tr>
+									<td style="font-size:15px; font-weight:bold; font-family:dejavu sans,arial; color:#000; line-height:28px;">Coupon Offer</td>
+									<td width="10"></td>
+									<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;" align="right">'.$order_detail->coupon_amount.$currency_symbol.'</td>
+									</tr>';
+			}
+		}
+		if($currency_side == 1)
+		{
+			$delivery_charge = $currency_symbol.'0';
+		}
+		else {
+			$delivery_charge = '0'.$currency_symbol;
+		}
+		if($delivery_details[0]->order_type == 1)
+		{    
+			if($currency_side == 1)
+			{
+				$delivery_charge = $currency_symbol.$order_detail->delivery_charge;
+			}
+			else {
+				$delivery_charge = $order_detail->delivery_charge.$currency_symbol;
+			}
+		}
+		$item=$overall_item;
+		$html = '<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/><table width="700px" cellspacing="0" cellpadding="0" bgcolor="#fff" style="border:1px solid #ccc;">
+		<tbody>
+		<tr>
+		<td style="border-bottom:1px solid #ccc;">
+		<table style="padding-top: 25px; padding-bottom: 25px;" width="700px" cellspacing="0" cellpadding="0">
+		<tbody>
+		<tr>
+		<td width="20">&nbsp;</td>
+		<td>
+		<table>
+		<tr>
+		<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;">'.rtrim($overall_bill_form,'<hr/>').'</td>
+		</tr>
+		</table>
+		</td>
+		<td align="right"><a title="'.$site_name.'" href="'.url('/').'"><img src="'.$logo.'" alt="'.$site_name.'" /></a></td>
+		<td width="20">&nbsp;</td>
+		</tr>
+		</tbody>
+		</table>
+		</td>
+		</tr>
+		<!-- end 1 tr -->
+		<tr>
+		<td>
+		<table style="padding-top: 25px; padding-bottom: 25px;" width="700px" cellspacing="0" cellpadding="0">
+		<tbody>
+		<tr>
+		<td width="20">&nbsp;</td>
+		<td colspan="4">
+		<table>
+		<tr>
+		<td style="font-size:16px; font-weight:bold; font-family:Verdana; color:#000; padding-bottom:10px;">'.$delivery_type.'</td>
+		</tr>
+		<tr>
+		<td style="font-size:16px; font-weight:500; font-family:arial; color:#666; line-height:28px;">'.wordwrap($delivery_address,70,"<br>\n").'
+		<br/>'.$delivery_email.'</td>
+		</tr>
+		</table>
+		</td>
+		<td align="right">
+		<table cellpadding="0" cellspacing="0">
+		<tr>
+		<td style="font-size:15px; font-weight:bold; font-family:Verdana; color:#000; line-height:28px;">Invoice</td>
+		<td></td>
+		<td align="left" style="font-size:16px; font-weight:500; font-family:arial; color:#666; line-height:28px;">'.$order_detail->invoice_id.'</td>
+		</tr>
+		 <tr>
+		<td style="font-size:15px; font-weight:bold; font-family:Verdana; color:#000; line-height:28px;">Delivery date</td>
+		<td></td>
+		<td align="left" style="font-size:16px; font-weight:500; font-family:arial; color:#666; line-height:28px;">'.date('M d, Y', strtotime($delivery_details[0]->delivery_date)).'</td>
+		</tr>
+
+		<tr>
+		<td style="font-size:15px; font-weight:bold; font-family:Verdana; color:#000; line-height:28px;">Invoice date</td>
+		<td></td>
+		<td align="left" style="font-size:16px; font-weight:500; font-family:arial; color:#666; line-height:28px;">'.date('M d, Y', strtotime($order_detail->created_date)).'</td>
+		</tr>
+		<tr>
+		<td style="font-size:15px; font-weight:bold; font-family:arial; color:#000; line-height:28px; background:#d1d5d4; padding:0 9px;">Amount due</td>
+		<td></td>
+		<td align="left" style="font-size:16px; font-weight:500; font-family:arial; color:#666; line-height:28px;background:#d1d5d4;padding:0 9px;">'.$total_amount.'</td>
+		</tr>
+		</table>
+		</td>
+		<td width="20">&nbsp;</td>
+		</tr>
+		</tbody>
+		</table>
+		</td>
+		</tr>
+		<!-- end 2 tr -->
+		<tr>
+		<td>
+		<table cellpadding="0" cellspacing="0" width="100%">
+		<tr style="background:#d1d5d4;padding:0 9px;">
+		<td align="center" style=" padding:7px 0; font-size:17px; font-family:Verdana; font-weight:bold;">Item</th>
+		<td align="center" style=" padding:7px 0;font-size:17px; font-family:Verdana; font-weight:bold;">Description</th>
+		<td align="center" style=" padding:7px 0;font-size:17px; font-family:Verdana; font-weight:bold;">Quantity</th>
+		<td align="center" style=" padding:7px 0;font-size:17px; font-family:Verdana; font-weight:bold;">Unit cost</th>
+		<td align="center" style=" padding:7px 0;font-size:17px; font-family:Verdana; font-weight:bold;">Line total</th>
+		</tr>'.$item.'
+		</table>
+		</td>
+		</tr>
+		<!-- end 3 tr -->
+		<tr>
+		<td>
+		<table style="padding-top: 25px; padding-bottom: 25px;" width="787" cellspacing="0" cellpadding="0">
+		<tbody>
+		<tr>
+		<td width="20">&nbsp;</td>
+		<td>
+		</td>
+		<td align="right">
+		<table cellspacing="0" cellpadding="0">
+		<tbody>
+		<tr>
+		<td style="font-size:15px; font-weight:bold; font-family:dejavu sans,arial; color:#000; line-height:28px;">SUBTOTAL</td>
+		<td width="10"></td>
+		<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;" align="right">'.$sub_total.'</td>
+		</tr>
+		<tr>
+		<td style="font-size:15px; font-weight:bold; font-family:dejavu sans,arial; color:#000; line-height:28px;">Delivery fee</td>
+		<td width="10"></td>
+		<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;" align="right">'.$delivery_charge.'</td>
+		</tr>
+		'.$coupon_offer.'
+		<tr>
+		<td style="font-size:15px; font-weight:bold; font-family:dejavu sans,arial; color:#000; line-height:28px; background:#d1d5d4; padding:0 9px;">TOTAL</td>
+		<td style="background:#d1d5d4;padding:0 9px;" width="10"></td>
+		<td style="font-size:16px; font-weight:500; font-family:dejavu sans,arial; color:#666; line-height:28px;background:#d1d5d4;padding:0 9px;" align="right">'.$total_amount.'</td>
+		</tr>
+		</tbody></table>
+		</td>
+		<td width="20">&nbsp;</td>
+		</tr>
+		</tbody>
+		</table>
+		</td>
+		</tr>
+		<tr>
+		<td>
+		<table>
+		<tr>
+		<td width="20">&nbsp;</td>
+		<td width="20">&nbsp;</td>
+		</tr>
+		</tbody>
+		</table>';
+		$pdf = App::make('dompdf.wrapper');
+		$pdf->loadHTML($html)->save(base_path().'/public/assets/front/'.Session::get("general")->theme.'/images/invoice/'.$order_detail->invoice_id.'.pdf');
+		$attachment[] = base_path().'/public/assets/front/'.Session::get("general")->theme.'/images/invoice/'.$order_detail->invoice_id.'.pdf';
+
+		/** Send Email To vendor here **/
+		$users = Users::find(1);
+		$admin_mail = $users->email;
+//$admin_mail = 'sumiran.das@nextbrainitech.com';
+		$subject     = getAppConfig()->site_name.' New Order Placed & Confirmation - ['.$out->invoice_id .']';
+		$template    = DB::table('email_templates')
+						->select('*')
+						->where('template_id','=',self::ORDER_MAIL_VENDOR_TEMPLATE)
+						->get();
+		if(count($template))
+		{
+			$from = $template[0]->from_email;
+			$from_name=$template[0]->from;
+			if(!$template[0]->template_id)
+			{
+				$template = 'mail_template';
+				$from     = getAppConfigEmail()->contact_mail;
+				$subject  = getAppConfig()->site_name.' New Order Placed & Confirmation - ['.$out->invoice_id .']';
+				$from_name = "";
+			}
+			$content = array("order" => array('name' =>$users->name,'data'=>$html));
+			$mail = smtp($from,$from_name,$admin_mail,$subject,$content,$template);
+		}
+        /** Send Email To user(purchaser) **/
+        $users=Users::find($user_id);
+        $to=$users->email;
+//$to = 'sumiran.das@nextbrainitech.com';
+        $subject = 'Order Confirmation - Your Order with '.getAppConfig()->site_name.' ['.$order_detail->invoice_id .'] has been successfully placed!';
+        $template=DB::table('email_templates')
+        ->select('*')
+        ->where('template_id','=',self::ORDER_MAIL_TEMPLATE)
+        ->get();
+        if(count($template)){
+            $from = $template[0]->from_email;
+            $from_name=$template[0]->from;
+            if(!$template[0]->template_id){
+            $template = 'mail_template';
+            $from=getAppConfigEmail()->contact_mail;
+            $subject = "Welcome to ".getAppConfig()->site_name;
+            $from_name="";
+            }
+            $content =array("order" => array('name' =>$users->name));
+            $email=smtp($from,$from_name,$to,$subject,$content,$template,$attachment);
+            return true;
+        }
+    }
+    public function send_order_email($id,$uid,$language)
+    {
+        $order_id   = $id;
+        $user_id    = $uid;
+        $language   = 1;
+        $user_array = array("user_id" => $user_id,"language"=>$language,"order_id" =>$order_id);
+        $response   = $this->get_order_detail($user_array);
+        $delivery_settings = $this->get_delivery_settings();
+      
+        $order_detail     = $response["order_detail"][0];
+        $revised_delivery_cost = $delivery_settings->delivery_cost_fixed;
+        $delivery_details = $response["delivery_details"];
+        $logo             = url('/assets/front/tijik/images/oddappz.png');
+        $delivery_date    = date("d F, l", strtotime($delivery_details[0]->delivery_date)); 
+        $delivery_time    = date('g:i a', strtotime($delivery_details[0]->start_time)).'-'.date('g:i a', strtotime($delivery_details[0]->end_time));
+        $site_name = Session::get("general")->site_name;
+        $currency_side   = getCurrencyPosition()->currency_side;
+        $currency_symbol = getCurrency($language); 
+		if($delivery_details[0]->order_type == 1)
+		{
+			$delivery_type   = 'DELIVERY ADDRESS :';
+			$delivery_address = ($delivery_details[0]->contact_address != '')?ucfirst($delivery_details[0]->contact_address):'-';
+		}
+		else {
+			$delivery_type   = 'PICKUP ADDRESS :';
+			$delivery_address = ($delivery_details[0]->contact_address != '')?ucfirst($delivery_details[0]->contact_address):'-';
+		}
+		$overall_sub_total = 0;$overall_coupon_amount=0;
+		$overall_item      = '';
+		
+                $html1 = '';
+		   foreach($order_detail->outlets as $out){
+$item = '';
+$vendor_name = utf8_encode($out->vendor_name);
+$sub_total = 0;$coupon_offer='';$total_amount='';
+		$overall_item .=   '<tbody>
+		     <tr>
+			
+		  <td align="center" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc; color:#ededed;" bgcolor="#ededed">900</td>      
+				<td bgcolor="#ededed"align="left"style="font-size:17px; font-weight:500;border-bottom:1px solid #ccc; color:#000; font-family:Open Sans;" colspan="4"><b>'.utf8_decode($vendor_name).'</b></td>
+			 
+		      </tr>';
+foreach($out->items as $items)
+			{
+
+				if($currency_side == 1)
+				{
+					$item_cost = $currency_symbol.number_format((float)($items->item_cost),2,'.','');
+					$unit_cost = $currency_symbol.number_format((float)($item_cost*$items->item_unit),2,'.','');
+				}
+				else {
+					$item_cost = number_format((float)($items->item_cost),2,'.','').$currency_symbol;
+					$unit_cost = ($items->item_cost*$items->item_unit).$currency_symbol;
+				}
+$item .='<tr>
+			
+			 <td align="center" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;">'.$items->product_id.'</td>
+			 <td align="left" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;">
+			    <h5 style="margin:0px; padding:0px; font-size:16px; color:#000;font-family:arial;">'.$items->product_name.'</h5>
+			    <p style="margin:0px; padding:0px; font-size:15px; color:#777;font-family:arial;">'.$items->description.'</p>
+			 </td>
+			 <td align="center" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;">'.$item_cost.'</td>
+			 <td align="center" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;">'.$items->item_unit.'</td>
+			 <td align="right" style="border-bottom:1px solid #ccc;">'.$currency_symbol.number_format((float)($items->item_cost*$items->item_unit),2,'.','').'</td>
+			
+		      </tr>';
+                     //$outlsub_total =number_format((float)($items->item_cost*$items->item_unit),2,'.','');
+                     $sub_total += number_format((float)($items->item_cost*$items->item_unit),2,'.','');
+}
+$overall_sub_total += $out->total_amount;
+                 
+			  
+		     $outsubtotal = '
+			 <tr>
+
+			 <td colspan="2" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;border-left:1px solid #ccc;"></td>
+			 <td align="center" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;">Subtotal</td>
+			 <td align="center" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;">共</td>
+			 <td align="right" style="border-bottom:1px solid #ccc;">'.$currency_symbol.number_format((float)($sub_total),2,'.','').'</td>
+		      </tr>
+			  ';
+
+	$total_amount   =  '<tr>
+
+			 <td colspan="2" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;border-left:1px solid #ccc;"></td>
+			 <td align="center" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;">Vendor Total</td>
+			 <td align="center" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;">商戶合共</td>
+			 <td align="right" style="border-bottom:1px solid #ccc;">'.$currency_symbol.number_format((float)($out->total_amount),2,'.','').'</td>
+		      </tr>';
+
+				$sub_total       = $currency_symbol.$sub_total;
+				
+					$coupon_offer	 =  '<tr>
+
+			 <td colspan="2" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;border-left:1px solid #ccc;"></td>
+			 <td align="center" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;">Vendor Promo Discount </td>
+			 <td align="center" style="border-bottom:1px solid #ccc;border-right:1px solid #ccc;">商戶優惠折扣</td>
+			 <td align="right" style="border-bottom:1px solid #ccc;">'.$currency_symbol.number_format((float)($out->coupon_amount),2,'.','').'</td>
+		      </tr>';
+			  
+			
+
+   $overall_item .= $item.$outsubtotal.$coupon_offer.$total_amount;
+$overall_coupon_amount += $out->coupon_amount;
+}
+
+$item=$overall_item;
+$fpath =  base_path().'/public/assets/';
+
+   $html = '
+<html>
+  
+      
+           <table cellpadding="5" cellspacing="0" border="0" align="center" width="700" style="border:1px solid #ccc;">
+		   <thead>
+		      <tr bgcolor="#be191c">
+			 <th colspan="5" align="left" >
+			    <a href="#"><img src="'.$logo.'" alt="RunRunFresh"></a>
+			 </th>
+		      </tr>
+			  
+			  <!-- space -->
+			   <tr height="30">
+		      <td colspan="5" align="center"><b style="font-size:18px; font-family:arial; text-align:center;"> </b></td>
+		   </tr><!-- space end -->
+		   </thead>
+		   
+		   <tr>
+		      <td colspan="5" align="center"><b style="font-size:18px; font-family:arial; text-align:center;">Order Summary 訂單內容</b></td>
+		   </tr>
+		   
+		     <!-- space -->
+			   <tr height="20">
+		      <td colspan="5" align="center"><b style="font-size:18px; font-family:arial; text-align:center;"> </b></td>
+		   </tr><!-- space end -->
+		   
+		   <tr>
+		      
+		      <td style="margin:0px; font-family:arial; color:#000; font-size:18px; border: 1px solid #ccc;" colspan="3" align="left" >
+			 <p style="margin:0px; font-family:arial; color:#777; font-size:17px;">Name 姓名 :'.' '.$delivery_details[0]->social_title.' '.$delivery_details[0]->user_name.'<br/>
+                          Email 電郵 :'.' '.$delivery_details[0]->email.'<br/>
+                          Address 地址 :'.' '.$delivery_details[0]->contact_address.'<br/>
+                          Phone 電話 :'.' '.$delivery_details[0]->mobile.'   
+			 </p>
+		      </td>
+		      <td colspan="2" align="left" style="border: 1px solid #ccc;">
+		      
+			 <p style="margin:0px; font-family:arial; color:#777; font-size:17px;">Order ID 訂單編號 :'.' '.$order_detail->order_key_formated.'</p>
+			 <p style="margin:0px; font-family:arial; color:#777; font-size:17px;">Payment Method 付款方式 :'.' '.$delivery_details[0]->payment_type.'<br/>Order Date 訂單日期 :'.' '.date("d/m/Y", strtotime($delivery_details[0]->created_date)).'<br/>
+Delivery Date 送貨日期:'.' '.date("d/m/Y", strtotime($delivery_details[0]->delivery_date)).'
+			 </p>
+		      </td>
+		      
+		   </tr>
+		   
+		     <!-- space 
+			   <tr height="20">
+		      <td colspan="5" align="center"><b style="font-size:18px; font-family:arial; text-align:center;"> </b></td>
+		   </tr> -->
+		   <thead>
+		      <tr bgcolor="#a5a5a5">
+			 
+			 <th style="font-size:17px; font-weight:500; color:#000; font-family:arial;"> Product No</th>
+			 <th style="font-size:17px; font-weight:500; color:#000; font-family:arial;" align="left">Product name and description</th>
+			 <th style="font-size:17px; font-weight:500; color:#000; font-family:arial;">Price</th>
+			 <th style="font-size:17px; font-weight:500; color:#000; font-family:arial;">Quantity</th>
+			 <th style="font-size:17px; font-weight:500; color:#000; font-family:arial;">Total</th>
+			
+		      </tr>
+		   </thead>
+		    <thead>
+		      <tr bgcolor="#a5a5a5">
+			 
+			 <th style="font-size:17px; font-weight:500; color:#000; font-family:arial;">貨品號碼</th>
+			 <th style="font-size:17px; font-weight:500; color:#000; font-family:arial;" align="left">貨品名稱及介紹</th>
+			 <th style="font-size:17px; font-weight:500; color:#000; font-family:arial;">價錢</th>
+			 <th style="font-size:17px; font-weight:500; color:#000; font-family:arial;">數量</th>
+			 <th style="font-size:17px; font-weight:500; color:#000; font-family:arial;">金額</th>
+			
+		      </tr>
+		   </thead>'.$item.'
+<tr>
+			 <td  colspan="2" style="border-right:1px solid #ccc;"></td>
+			 <td align="center" style="border-right:1px solid #ccc; font-size:15px;border-bottom:1px solid #ccc; color:#000;font-family:arial;"><b>Total</b></td>
+			 <td align="center" style="border-right:1px solid #ccc; font-size:15px;border-bottom:1px solid #ccc; color:#000;font-family:arial;"><b>合共</b></td>
+			 <td align="right" style="font-size:15px; color:#000;font-family:arial;border-bottom:1px solid #ccc;"><b>'.$currency_symbol.number_format((float)($overall_sub_total),2,'.','').'</b></td>
+		      </tr>
+		      <tr>
+			 <td  colspan="2" style="border-right:1px solid #ccc;"></td>
+			 <td align="center" style="border-right:1px solid #ccc; font-size:15px;border-bottom:1px solid #ccc; color:#000;font-family:arial;"><b>(Coupon discount</b></td>
+			 <td align="center" style="border-right:1px solid #ccc; font-size:15px;border-bottom:1px solid #ccc; color:#000;font-family:arial;"><b>優惠折扣
+</b></td>
+			 <td align="right" style="font-size:15px; color:#000;border-bottom:1px solid #ccc;font-family:arial;"><b>'.$currency_symbol.number_format((float)($overall_coupon_amount),2,'.','').')</b></td>
+		      </tr>
+
+			  
+		      <tr>
+			 <td  colspan="2" style="border-right:1px solid #ccc;"></td>
+			 <td align="center" style="border-right:1px solid #ccc; font-size:15px;border-bottom:1px solid #ccc; color:#000;font-family:arial;"><b>Delivery Fee</b></td>
+			  <td align="center" style="border-right:1px solid #ccc; font-size:15px;border-bottom:1px solid #ccc; color:#000;font-family:arial;"><b>送貨費</b></td>
+			 <td align="right" style="font-size:15px; color:#000;font-family:arial;border-bottom:1px solid #ccc;"><b>'.$currency_symbol.number_format((float)($revised_delivery_cost),2,'.','').'</b></td>
+		      </tr>
+
+		        <tr>
+			 <td  colspan="2" style="border-right:1px solid #ccc;"></td>
+			 <td align="center" style="border-right:1px solid #ccc; font-size:15px;border-bottom:1px solid #ccc; color:#000;font-family:arial;"><b>Discounted Delivery Fee</b></td>
+			  <td align="center" style="border-right:1px solid #ccc; font-size:15px;border-bottom:1px solid #ccc; color:#000;font-family:arial;"><b>折後送貨費</b></td>
+			 <td align="right" style="font-size:15px; color:#000;font-family:arial;border-bottom:1px solid #ccc;"><b>'.$currency_symbol.number_format((float)($order_detail->delivery_charge),2,'.','').'</b></td>
+		      </tr>
+			  
+<tr>
+			 <td  colspan="2" style="border-right:1px solid #ccc;"></td>
+			 <td align="center" style="border-right:1px solid #ccc; font-size:15px;border-bottom:1px solid #ccc; color:#000;font-family:arial;"><b>Grand Total
+</b></td>
+ <td align="center" style="border-right:1px solid #ccc; font-size:15px;border-bottom:1px solid #ccc; color:#000;font-family:arial;"><b> 總共
+</b></td>
+ <td align="right" style="font-size:15px; color:#000;border-bottom:1px solid #ccc;font-family:arial;"><b>'. $currency_symbol.number_format((float)($order_detail->total_amount),2,'.','').'</b></td>
+		      </tr>
+		       <tr>
+			 <td align="left" colspan="5" style="border-right:1px solid #ccc; font-size:15px;border-bottom:1px solid #ccc; color:#000;font-family:arial;"><b color"#000;>Terms of use<b><br/>
+			<p>1. RunRunFresh is an online shopping platform and delivery service provider. The quality of products is provided by individual vendors. RunRunFresh does not participate in any purchase process.<br/> 2. In order to ensure the freshness of the ingredients, the process of collecting products from the market to the delivery address could be as short as 30 minutes. However, please be advised that there is still a certain risk involved in transporting fresh ingredients.<br/> 3.Once payment is confirmed, the delivery date and time cannot be changed. Fresh ingredients may be cleaned, cut etc by vendors, after that the products will not be allowed for return.<br/> 4.The final quantity to be delivered will be based on actual vendor inventory. If there is a shortage of products, RunRunFresh representatives will contact and advise customers.<br/> 5. RunRunFresh delivery time to the customers’ delivery address is at every 1 hour interval, please note delivery time may be affected by the actual market and traffic situation.<br/> 6.When customer does not accept delivery within 5 minutes after the delivery person arrives at the address, the delivery person will make the following choices depending on the situation:<br/>     a. The customers order will be placed at the customers building management office, and the customer will pick up the orders from the management office; <br/>
+     b. If the building does not have management office, the order will be placed at the front door of delivery address;<br/>      c. If the delivery person is unable to enter the building and cannot deliver the orders due to that reason, no compensation will be made. <br/> 7. Please check all products after receiving the order. If there is any issues with the order, please contact us on 37097140 before 8:30pm that day.<br/>
+8. Please read our Terms and Conditions and Privacy Policy. In case of any dispute, RunRunFresh will retain the rights to make final decision..
+
+			 </p></td>
+		      </tr>
+		   </tbody>
+		   
+		</table>';
+   
+        $newname = $order_detail->invoice_id.'.html'; 
+		$target = base_path().'/public/assets/front/tijik/images/invoice/'.$newname; 
+       $image = file_put_contents($target, $html);
+        //return base_path().'/public/assets/front/tijik/images/invoice/'.$newname; exit;
+  
+		//$pdf = App::make('dompdf.wrapper'); 
+		//$pdf->loadHTML($html)->save(base_path().'/public/assets/front/'.Session::get("general")->theme.'/images/invoice/'.$order_detail->invoice_id.'.pdf');
+		$attachment[] = base_path().'/public/assets/front/'.Session::get("general")->theme.'/images/invoice/'.$order_detail->invoice_id.'.html';
+
+		/** Send Email To vendor here **/
+		$users = Users::find(1);
+		$admin_mail = $users->email;
+		$subject  = getAppConfig()->site_name.' New Order Placed & Confirmation - ['.$order_detail->order_key_formated .']';
+		$template    = DB::table('email_templates')
+						->select('*')
+						->where('template_id','=',self::ORDER_MAIL_VENDOR_TEMPLATE)
+						->get();
+		if(count($template))
+		{
+			$from = $template[0]->from_email;
+			$from_name=$template[0]->from;
+			if(!$template[0]->template_id)
+			{
+				$template = 'mail_template';
+				$from     = getAppConfigEmail()->contact_mail;
+				$subject  = getAppConfig()->site_name.' New Order Placed & Confirmation - ['.$order_detail->order_key_formated .']';
+				$from_name = "";
+			}
+			$content = array("order" => array('name' =>$users->name,'data'=>$html));
+			$mail = smtp($from,$from_name,$admin_mail,$subject,$content,$template);
+		}
+        /** Send Email To user(purchaser) **/
+        $users=Users::find($user_id);
+        $to=$users->email;
+//$to = 'sumiran.das@nextbrainitech.com';
+        $subject = 'Order Confirmation - Your Order with '.getAppConfig()->site_name.' ['.$order_detail->order_key_formated .'] has been successfully placed!';
+        $template=DB::table('email_templates')
+        ->select('*')
+        ->where('template_id','=',self::ORDER_MAIL_TEMPLATE)
+        ->get();
+        if(count($template)){
+            $from = $template[0]->from_email;
+            $from_name=$template[0]->from;
+            if(!$template[0]->template_id){
+            $template = 'mail_template';
+            $from=getAppConfigEmail()->contact_mail;
+            $subject = "Welcome to ".getAppConfig()->site_name;
+            $from_name="";
+            }
+            $content =array("order" => array('name' =>$users->name,'data'=>$html));
+            $email=smtp($from,$from_name,$to,$subject,$content,$template);
+            return true;
+        }
+    }
+   
+    public function order_detail(Request $data)
+    {
+        $post_data = $data->all();
+         App::setLocale('en');
+        if ($post_data['language'] == 2) {
+            App::setLocale('ch');
+        }
+        $language_id = $post_data['language'];
+
+		$user_array = array("user_id" => $post_data['user_id'],"language"=>$post_data['language'],"order_id" =>$post_data['order_id']);
+		$response   = $this->get_order_detail($user_array);
+
+		foreach($response['order_detail'][0]->outlets as $outlet){
+			$logo_image = URL::asset('assets/front/'.Session::get("general")->theme.'/images/no_image.png');
+			if(file_exists(base_path().'/public/assets/admin/base/images/vendors/logos/'.$outlet->logo_image) && $outlet->logo_image != ''){
+				$logo_image = url('/assets/admin/base/images/vendors/logos/'.$outlet->logo_image);
+			}
+			$outlet->logo_image = $logo_image;
+			foreach($outlet->items as $item){
+				$product_image = URL::asset('assets/front/'.Session::get("general")->theme.'/images/no_image.png');
+				if(file_exists(base_path().'/public/assets/admin/base/images/products/list/'.$item->product_image) && $item->product_image != ''){
+					$product_image = url('/assets/admin/base/images/products/list/'.$item->product_image);
+				}
+				$item->product_image = $product_image;
+			}
+			 $total_amount = number_format((float) $outlet->total_amount,2,'.','' );
+             $delivery_charge = number_format((float) $outlet->delivery_charge,2,'.','' );
+             $coupon_amount = number_format((float)  $outlet->coupon_amount,2,'.','' );
+			$invoic_pdf = url('/assets/front/'.Session::get('general')->theme.'/images/invoice/'.$response['order_detail'][0]->invoice_id.'.html');
+			$outlet->invoic_pdf = $invoic_pdf;
+			$outlet->total_amount = $total_amount;
+			$outlet->delivery_charge = $delivery_charge;
+			$outlet->coupon_amount = $coupon_amount;
+		}
+
+		$delivery_details=$response['delivery_details'][0];
+		if($delivery_details->start_time==null){
+			$delivery_details->start_time='';
+		}
+		if($delivery_details->end_time==null){
+			$delivery_details->end_time='';
+		}
+		$delivery_details->delivery_charge = number_format((float) $delivery_details->delivery_charge,2,'.','' );$delivery_details->coupon_amount = number_format((float) $delivery_details->coupon_amount,2,'.','' );
+		$delivery_details->total_amount = number_format((float) $delivery_details->total_amount,2,'.','' );
+		$delivery_details->sub_total = ($delivery_details->total_amount)-($delivery_details->delivery_charge + $delivery_details->service_tax )+($delivery_details->coupon_amount);
+        $reviews=DB::table('outlet_reviews')
+                ->selectRaw('count(outlet_reviews.order_id) as review_status')
+                //->where("outlet_reviews.outlet_id","=",$reviews->outlet_id)
+                ->where("outlet_reviews.order_id","=",$post_data['order_id'])
+                ->where('outlet_reviews.customer_id','=',$post_data['user_id'])
+                ->first();
+        
+         $order_tracking_status = array(1=>"已開始 Initiated",10=>"準備中 Preparing	",12=>"運送中 Delivering",19=>"已完成 Completed");
+
+         $tracking_orders = array(1=>"Initiated",10=>"Preparing",12=>"Delivering",19=>"Completed");
+
+       //  $tracking_orders = array(1=>"Initiated",18=>"Packed",10=>"Processed",19=>"Dispatched",12=>"Delivered");
+
+        
+        $tracking_result = $mob_tracking_result = $order_track_status = array() ;
+        $t = 0;$last_state = $mob_last_state = "";
+
+        foreach($tracking_orders as $key=>$track)
+        {
+        	
+            $tracking_result[$key]['text']      = $track;
+            $mob_tracking_result[$t]['text']    = $track;
+            $tracking_result[$key]['process']   = "0";
+            $mob_tracking_result[$t]['process'] = "0";
+            $tracking_result[$key]['order_comments']   = "";
+            $mob_tracking_result[$t]['order_comments'] = "";
+            $tracking_result[$key]['date']   = "";
+            $mob_tracking_result[$t]['date'] = "";
+            $check_status = DB::table('orders_log') 
+                            ->select('order_id','log_time','order_comments')
+                            ->where('order_id','=',$post_data['order_id'])
+                            ->where('order_status','=',$key) 
+                            ->first();
+
+            if(count($check_status) >0)
+            {
+                $last_state = $key;
+                $tracking_result[$key]['process'] = "1";
+                $tracking_result[$key]['order_comments'] = ($check_status->order_comments != '')?$check_status->order_comments:'';
+                $tracking_result[$key]['date'] = date('M j Y g:i A', strtotime($check_status->log_time));
+                $mob_last_state = $t;
+                $mob_tracking_result[$t]['process'] = "1";
+                $mob_tracking_result[$t]['order_comments'] = $check_status->order_comments;
+                $mob_tracking_result[$t]['date'] = date('M j Y g:i A', strtotime($check_status->log_time));
+            }
+            $t++;
+        }
+        foreach($order_tracking_status as $key=>$track)
+        {
+            $order_track_status[$key]['text']      = $track;
+           
+            $order_track_status[$key]['process']   = "0";
+            $order_track_status[$key]['order_comments']   = "";
+            $order_track_status[$key]['date']   = "";
+            $check_status = DB::table('orders_log') 
+                            ->select('order_id','log_time','order_comments')
+                            ->where('order_id','=',$post_data['order_id'])
+                            ->where('order_status','=',$key) 
+                            ->first();
+            if(count($check_status) >0)
+            {
+                $last_state = $key;
+                $order_track_status[$key]['process'] = "1";
+                $order_track_status[$key]['order_comments'] = ($check_status->order_comments != '')?$check_status->order_comments:'';
+                $order_track_status[$key]['date'] = date('M j Y g:i A', strtotime($check_status->log_time));
+                $mob_last_state = $t;
+              
+            }
+            $t++;
+        }
+        
+        $reviews = DB::table('outlet_reviews')->selectRaw('count(outlet_reviews.order_id) as review_status')
+                    ->where("outlet_reviews.order_id","=",$post_data['order_id'])
+                    ->where('outlet_reviews.customer_id','=',$post_data['user_id'])->first();
+        $return_reasons = $this->return_reason($language_id);
+        $mob_return_reasons = $this->mob_return_reason($language_id);
+        $result = array("response"=>array("httpCode" => 400,"Message" => "no items found","order_items"=>array(),"delivery_details"=>array(),"return_reasons"=>$return_reasons,"tracking_result"=>$tracking_result,"order_track_status"=>$order_track_status,"last_state"=>$last_state,"reviews" => $reviews));
+        if(count($response['order_detail'])>0 && count($response['delivery_details'])>0)
+        {
+			if($response['delivery_details'][0]->coupon_amount==null){
+				$response['delivery_details'][0]->coupon_amount = "";
+			}
+			if($response['order_detail'][0]->coupon_amount==null){
+				$response['order_detail'][0]->coupon_amount = "";
+			}
+
+			//print_r($mob_tracking_result);exit;
+
+            $result = array("response" => array("httpCode" => 200, "Message" => "order items", "order_items"=>$response['order_detail'], "delivery_details" => $response['delivery_details'], "return_reasons" => $return_reasons,"tracking_result" => $tracking_result, "last_state" => $last_state, "order_track_status"=>$order_track_status,"mob_tracking_result" => $mob_tracking_result, "mob_return_reasons" => $mob_return_reasons,"reviews" => $reviews,"order_id_encrypted"=>encrypt($post_data['order_id'])));//, "mob_delivery_details" => $delivery
+        }
+        return json_encode($result);
+    }
+//    public function get_order_details($order_id)
+    public function get_order_detail_2($order_id)
+    {
+        $language_id = getCurrentLang();
+        $query3 = '"vendors_infos"."lang_id" = (case when (select count(*) as totalcount from vendors_infos where vendors_infos.lang_id = '.$language_id.' and vendors.id = vendors_infos.id) > 0 THEN '.$language_id.' ELSE 1 END)';
+        $query4 = '"payment_gateways_info"."language_id" = (case when (select count(*) as totalcount from payment_gateways_info where payment_gateways_info.language_id = '.$language_id.' and payment_gateways.id = payment_gateways_info.payment_id) > 0 THEN '.$language_id.' ELSE 1 END)';
+        $vendor_info = DB::select('SELECT vendors_infos.vendor_name,vendors.email,vendors.logo_image,o.id as order_id,o.created_date,o.order_status,order_status.name as status_name,order_status.color_code as color_code,payment_gateways_info.name as payment_gateway_name,o.outlet_id,vendors.id as vendor_id,o.order_key_formated
+        FROM orders o
+        left join vendors vendors on vendors.id = o.vendor_id
+        left join vendors_infos vendors_infos on vendors_infos.id = vendors.id
+        left join order_status order_status on order_status.id = o.order_status
+        left join payment_gateways payment_gateways on payment_gateways.id = o.payment_gateway_id
+        left join payment_gateways_info payment_gateways_info on payment_gateways_info.payment_id = payment_gateways.id
+        where '.$query3.' AND '.$query4.' AND o.id = ? ORDER BY o.id',array($order_id));
+
+        $query = 'pi.lang_id = (case when (select count(*) as totalcount from products_infos where products_infos.lang_id = '.$language_id.' and p.id = products_infos.id) > 0 THEN '.$language_id.' ELSE 1 END)';
+        $order_items = DB::select('SELECT p.product_image,p.id AS product_id,oi.item_cost,oi.item_unit,oi.item_offer,o.total_amount,o.delivery_charge,o.service_tax,o.invoice_id,pi.product_name,pi.description,o.coupon_amount
+        FROM orders o
+        LEFT JOIN orders_info oi ON oi.order_id = o.id
+        LEFT JOIN products p ON p.id = oi.item_id
+        LEFT JOIN products_infos pi ON pi.id = p.id
+        where '.$query.' AND o.id = ? ORDER BY oi.id',array($order_id));
+        $query5 = 'out_infos.language_id = (case when (select count(*) as totalcount from outlet_infos where outlet_infos.language_id = '.$language_id.' and out.id = outlet_infos.id) > 0 THEN '.$language_id.' ELSE 1 END)';
+        $query2 = 'pgi.language_id = (case when (select count(*) as totalcount from payment_gateways_info where payment_gateways_info.language_id = '.$language_id.' and pg.id = payment_gateways_info.payment_id) > 0 THEN '.$language_id.' ELSE 1 END)';
+        $delivery_details = DB::select('SELECT o.delivery_instructions,ua.address,pg.id as payment_gateway_id,pgi.name,o.total_amount,o.delivery_charge,o.service_tax,dti.start_time,end_time,o.created_date,o.delivery_date,o.order_type,out_infos.contact_address,o.coupon_amount,o.customer_id FROM orders o
+                    LEFT JOIN user_address ua ON ua.id = o.delivery_address
+                    left join payment_gateways pg on pg.id = o.payment_gateway_id
+                    left join payment_gateways_info pgi on pgi.payment_id = pg.id
+                    left join delivery_time_slots dts on dts.id=o.delivery_slot
+                    left join delivery_time_interval dti on dti.id = dts.time_interval_id
+                    left join outlets out on out.id = o.outlet_id
+                   left join outlet_infos out_infos on out_infos.id = out.id
+                    where '.$query2.' AND '.$query5.'AND o.id = ?',array($order_id));
+        if(count($order_items)>0 && count($delivery_details)>0 && count($vendor_info)>0)
+        {
+            $result = array("order_items"=>$order_items,"delivery_details"=>$delivery_details,"vendor_info"=>$vendor_info);
+        }
+        return $result;
+    }
+    public function get_order_detail($data)
+    {
+        $post_data = $data;
+        $language_id = $post_data['language'];
+		$order_details = DB::select('SELECT o.id as order_id, o.customer_id,o.order_key_formated,o.created_date,o.total_amount,o.delivery_charge,o.payment_gateway_id,o.invoice_id,o.order_status,order_status.name,
+			(select count(oo.id) as no_of_coupons FROM orders_outlet oo where oo.orders_id = o.id AND coupon_amount>0),
+			(select sum(oo.coupon_amount) as coupon_amount FROM orders_outlet oo where oo.orders_id = o.id AND coupon_amount>0)
+			FROM orders o
+			left join order_status order_status on order_status.id = o.order_status
+			WHERE o.id = ? AND o.customer_id = ? ',array($post_data['order_id'],$post_data['user_id']));
+
+
+		$query = 'pi.lang_id = (case when (select count(*) as totalcount from products_infos where products_infos.lang_id = '.$language_id.' and p.id = products_infos.id) > 0 THEN '.$language_id.' ELSE 1 END)';
+		$query3 = '"vendors_infos"."lang_id" = (case when (select count(*) as totalcount from vendors_infos where vendors_infos.lang_id = '.$language_id.' and vendors.id = vendors_infos.id) > 0 THEN '.$language_id.' ELSE 1 END)';
+		$query4 = '"payment_gateways_info"."language_id" = (case when (select count(*) as totalcount from payment_gateways_info where payment_gateways_info.language_id = '.$language_id.' and payment_gateways.id = payment_gateways_info.payment_id) > 0 THEN '.$language_id.' ELSE 1 END)';
+		$query5 = '"outlet_infos"."language_id" = (case when (select count(outlet_infos.language_id) as totalcount from outlet_infos where outlet_infos.language_id = '.$language_id.' and outlets.id = outlet_infos.id) > 0 THEN '.$language_id.' ELSE 1 END)';
+		$wquery = '"weight_classes_infos"."lang_id" = (case when (select count(weight_classes_infos.lang_id) as totalcount from weight_classes_infos where weight_classes_infos.lang_id = '.$language_id.' and weight_classes.id = weight_classes_infos.id) > 0 THEN '.$language_id.' ELSE 1 END)';
+		foreach($order_details as $order_detail){
+
+			$order_detail->outlets = DB::select('SELECT vendors_infos.vendor_name, outlet_infos.outlet_name, vendors.logo_image, vendors.printer_name, vendors.contact_address, vendors.contact_email,payment_gateways_info.name as payment_gateway_name,oo.id as orders_outlet_id,oo.outlet_id,oo.vendor_id,oo.order_key_formated,oo.coupon_amount,oo.total_amount,oo.delivery_charge,oo.invoice_id,vendors.email
+				FROM orders_outlet oo
+				left join vendors vendors on vendors.id = oo.vendor_id
+				left join vendors_infos vendors_infos on vendors_infos.id = vendors.id
+				left join outlets outlets on outlets.id = oo.outlet_id
+				left join outlet_infos outlet_infos on outlet_infos.id = outlets.id
+				left join payment_gateways payment_gateways on payment_gateways.id = '.$order_detail->payment_gateway_id.'
+				left join payment_gateways_info payment_gateways_info on payment_gateways_info.payment_id = payment_gateways.id
+				where '.$query3.' AND '.$query4.' AND '.$query5.' AND oo.orders_id = '.$order_detail->order_id.' ORDER BY oo.id');
+
+			foreach($order_detail->outlets as $out){
+				$out_reviews = DB::select('SELECT out_rev.comments,out_rev.approval_status
+					FROM outlet_reviews out_rev
+					WHERE out_rev.outlet_id = '.$out->outlet_id.' AND out_rev.order_id = '.$order_detail->order_id);
+				if( count($out_reviews)>0 ){
+					$out->review_comment = $out_reviews[0]->comments;
+					$out->review_approval_status = ($out_reviews[0]->approval_status!=null)?$out_reviews[0]->approval_status:0;
+				}
+				else{
+					$out->review_comment = '';
+					$out->review_approval_status = 0;
+				}
+			   
+				$out->items = DB::select('SELECT p.product_image,p.id AS product_id,oi.item_cost,oi.item_unit,oi.item_offer,pi.product_name,pi.description,p.weight,weight_classes_infos.title,weight_classes_infos.unit as unit_code
+					FROM orders_info oi
+					LEFT JOIN products p ON p.id = oi.item_id
+					LEFT JOIN products_infos pi ON pi.id = p.id
+					LEFT JOIN weight_classes ON weight_classes.id = p.weight_class_id
+					LEFT JOIN weight_classes_infos ON weight_classes_infos.id = weight_classes.id
+					where '.$query.' AND '.$wquery.' AND oi.orders_outlet_id = '.$out->orders_outlet_id.' ORDER BY oi.id');
+			}
+		}
+
+
+		$query2 = 'pgi.language_id = (case when (select count(*) as totalcount from payment_gateways_info where payment_gateways_info.language_id = '.$language_id.' and pg.id = payment_gateways_info.payment_id) > 0 THEN '.$language_id.' ELSE 1 END)';
+
+	       $aquery = 'ai.language_id = (case when (select count(*) as totalcount from ai where address_infos.language_id = '.$language_id.' and at.id = address_infos.address_id) > 0 THEN '.$language_id.' ELSE 1 END)';
+
+/*$delivery_details = DB::select('SELECT o.delivery_instructions,o.delivery_slot_type,o.delivery_slot_name,trans.currency_code,trans.payment_type,pg.id as payment_gateway_id,pgi.name,o.total_amount,o.delivery_charge,o.service_tax,dti.start_time,end_time,o.created_date,o.delivery_date,o.order_type,u.name as user_name,u.first_name,u.last_name,u.email,u.mobile,ua.address as contact_address,ua.landmark,ua.flat_number,address_infos.name as address_type,
+			(select sum(oo.coupon_amount) as coupon_amount FROM orders_outlet oo where oo.orders_id = o.id AND coupon_amount>0)
+			FROM orders o
+			LEFT JOIN user_address ua ON ua.id = o.delivery_address
+                        LEFT JOIN address_type,address_type.id = ua.address_type
+                        LEFT JOIN address_infos address_infos.address_id = address_type.id
+			LEFT JOIN users u ON u.id = ua.user_id
+			left join payment_gateways pg on pg.id = o.payment_gateway_id
+			left join payment_gateways_info pgi on pgi.payment_id = pg.id
+			left join delivery_time_slots dts on dts.id=o.delivery_slot
+			left join delivery_time_interval dti on dti.id = dts.time_interval_id
+			left join transaction trans on trans.order_id = o.id
+			where '.$query2.'AND o.id = ? AND o.customer_id= ?',array($post_data['order_id'],$post_data['user_id'])); */
+
+$aquery = '"ai"."language_id" = (case when (select count(*) as totalcount from  address_infos where  address_infos.language_id = '.$language_id.' and at.id = ai.address_id) > 0 THEN '.$language_id.' ELSE 1 END)';
+$delivery_details = DB::select('SELECT o.delivery_instructions,o.delivery_slot_type,o.delivery_slot_name,trans.currency_code,trans.payment_type,pg.id as payment_gateway_id,pgi.name,o.total_amount,o.delivery_charge,o.service_tax,dti.start_time,end_time,o.created_date,o.delivery_date,o.order_type,u.name as user_name,u.first_name,u.last_name,u.email,u.mobile,u.social_title,ua.address as contact_address,ua.landmark,ua.flat_number,ai.name as address_type,
+			(select sum(oo.coupon_amount) as coupon_amount FROM orders_outlet oo where oo.orders_id = o.id AND coupon_amount>0)
+			FROM orders o
+                        LEFT JOIN user_address ua ON ua.id = o.delivery_address
+                          LEFT JOIN address_type at ON at.id = ua.address_type
+                          LEFT JOIN address_infos ai ON ai.address_id = at.id
+			  LEFT JOIN users u ON u.id = o.customer_id
+			 LEFT JOIN payment_gateways pg on pg.id = o.payment_gateway_id
+			  LEFT JOIN payment_gateways_info pgi on pgi.payment_id = pg.id
+			  LEFT JOIN delivery_time_slots dts on dts.id=o.delivery_slot
+			  LEFT JOIN delivery_time_interval dti on dti.id = dts.time_interval_id
+			  LEFT JOIN transaction trans on trans.order_id = o.id
+			where '.$query2.' AND '.$aquery.' AND o.id = ? AND o.customer_id= ?',array($post_data['order_id'],$post_data['user_id']));
+
+
+		$result = array("order_detail"=>$order_details,"delivery_details"=>$delivery_details);
+
+        return $result;
+    }
+    
+    public function return_reason($language)
+    {
+        $return_reasons= array();
+        $result = array("response" => array("httpCode" => 400, "status" => false, "return_reasons" =>$return_reasons));
+        $query = '"return_reason"."lang_id" = (case when (select count(*) as totalcount from return_reason where return_reason.lang_id = '.$language.') > 0 THEN '.$language.' ELSE 1 END)';
+        $return_reasons=DB::table('return_reason')
+                ->whereRaw($query)
+                ->orderBy('id', 'asc')
+                ->get();
+        $reasons_array = array();
+        foreach($return_reasons as $reasons)
+        {
+            $reasons_array[$reasons->id] = ucfirst(strtolower($reasons->name));
+        }
+        return $reasons_array;
+    }
+    /* Mobile api return reason */
+    public function mob_return_reason($language)
+    {
+        $return_reasons= array();
+        $result = array("response" => array("httpCode" => 400, "status" => false, "return_reasons" =>$return_reasons));
+        $query = '"return_reason"."lang_id" = (case when (select count(return_reason.lang_id) as totalcount from return_reason where return_reason.lang_id = '.$language.') > 0 THEN '.$language.' ELSE 1 END)';
+        $return_reasons = DB::table('return_reason')
+                            ->whereRaw($query)
+                            ->orderBy('id', 'asc')
+                            ->get();
+        $reasons_array = array();
+        $r = 0;
+        foreach($return_reasons as $reasons)
+        {
+            $reasons_array[$r]['id']   = $reasons->id;
+            $reasons_array[$r]['name'] = $reasons->name;
+            $r++;
+        }
+        return $reasons_array;
+    }
+    
+    public function update_promocode(Request $data)
+    {
+	    $post_data = $data->all();
+	    $current_date = strtotime(date('Y-m-d'));
+		if (empty($post_data['outlet_id'])) {
+			
+
+			$coupon_details = DB::table('coupons')
+						->select('coupons.id as coupon_id', 'coupon_type', 'offer_amount','offer_percentage','offer_type', 'coupon_code', 'start_date', 'end_date','type','minimum_order_amount')
+						->leftJoin('coupon_outlet','coupon_outlet.coupon_id','=','coupons.id')
+						->where('coupon_code','=',$post_data['promo_code'])
+						->where('type','=',1)->first();
+		} elseif (!empty($post_data['outlet_id'])) {
+
+			$coupon_details = DB::table('coupons')
+							->select('coupons.id as coupon_id', 'coupon_type', 'offer_amount','offer_type','offer_percentage','coupon_code', 'start_date', 'end_date','type','minimum_order_amount')
+							->leftJoin('coupon_outlet','coupon_outlet.coupon_id','=','coupons.id')
+							->where('coupon_code','=',$post_data['promo_code'])
+							->where('coupon_outlet.outlet_id','=',$post_data['outlet_id'])
+							->where('type','=',2)->first();
+		}
+		
+		if (count($coupon_details) == 0) {
+			$result = array("response" => array("httpCode" => 400,"Message" => trans("messages.This coupon is not applicable for the current store.")));
+			return json_encode($result);
+		} 
+		 elseif(($coupon_details->offer_amount > $post_data['total']) && (!empty($post_data['outlet_id'])))
+        {
+          $result = array("response" => array("httpCode" => 400,"Message" => trans("messages.your order amount is lessthen compare your coupon amount.")));
+            return json_encode($result);
+        }
+        
+ elseif(($coupon_details->minimum_order_amount > $post_data['total']) && (!empty($post_data['outlet_id'])))
+        {
+
+        		$currency_symbol = getCurrency($post_data['language']);
+            $result = array("response" => array("httpCode" => 400,"Message" => trans('messages.Minimum order value not met promo code, :promo_code, that you entered can only be redeemed for orders more than :min_amount', ['promo_code' => $post_data['promo_code'],'min_amount' =>$currency_symbol.'  '.$coupon_details->minimum_order_amount])));
+            return json_encode($result);
+        }elseif((strtotime($coupon_details->start_date) <= $current_date) && (strtotime($coupon_details->end_date) >= $current_date)) {
+			$coupon_user_limit_details = DB::table('user_cart_limit')
+										->select('cus_order_count','user_limit','total_order_count','coupon_limit')
+										->where('customer_id','=',$post_data['user_id'])
+										->where('coupon_code','=',$post_data['promo_code'])->first();
+			if (count($coupon_user_limit_details)>0) {
+				if ($coupon_user_limit_details->cus_order_count >= $coupon_user_limit_details->user_limit) {
+					$result = array("response" => array("httpCode" => 400,"Message" =>  trans("messages.Max user limit has been crossed")));
+					return json_encode($result);
+				}
+				if ($coupon_user_limit_details->total_order_count >= $coupon_user_limit_details->coupon_limit) {
+					$result = array("response" => array("httpCode" => 400,"Message" => trans("messages.Max coupon limit has been crossed")));
+					return json_encode($result);
+				}
+			}
+			$result = array("response" => array("httpCode" => 200,"status" => true, "Message" => trans("messages.Coupon applied Successfully"), "coupon_details"=>$coupon_details,"coupon_user_limit_details"=>$coupon_user_limit_details));
+			return json_encode($result);
+		} else {
+
+
+			$result = array("response" => array("httpCode" => 400,"Message" => trans("messages.Invalid promocode.")));
+			return json_encode($result);
+		}
+    }
+    
+    public function send_otp(Request $data)
+    {
+//$result = array("response" => array("httpCode" => 200,"Message" => trans("messages.we have sent verification code to your mobile.")));
+//return json_encode($result);
+        if(isset($data['language']) && $data['language']==2)
+		{
+			App::setLocale('ch');
+		}
+		else 
+		{
+			App::setLocale('en');
+		}
+		$post_data  = $data->all();
+		$user_id    = $post_data['user_id'];
+		$otp_option = $post_data['otp_option'];
+        $otp        = rand(100000,999999);
+        $users      = Users::find($user_id);
+        if($otp_option == 2 || $otp_option == 3)
+        {  
+            $number  = $users->mobile;
+            $message = 'You have received OTP password for '.getAppConfig()->site_name.'. Your OTP code is '.$otp.'. This code can be used only once and dont share this code with anyone.';
+            $twilo_sid    = "AC648e25ad93bdcbb9788baa76f1735e3c";
+            $twilio_token = "cca34a4a0811d1d4161470812348bf5c";
+            $from_number  = "+14055627423";
+			$client = new Services_Twilio($twilo_sid, $twilio_token);
+            try {
+				$m = $client->account->messages->sendMessage(
+						$from_number, // the text will be sent from your Twilio number
+						$number, // the phone number the text will be sent to
+						$message // the body of the text message
+                   );
+			
+                $users->otp = $otp;
+                $users->updated_date = date("Y-m-d H:i:s");
+                $users->save();
+                if($otp_option == 2)
+                {
+					$result = array("response" => array("httpCode" => 200,"Message" => trans("messages.we have sent verification code to your mobile.")));
+					return json_encode($result);
+				}
+				
+			
+            }
+            catch (Exception $e) {
+				$result = array("response" => array("httpCode" => 400,"Message" => $e->getMessage()));
+				return json_encode($result);
+			}
+			catch(\Services_Twilio_RestException $e) {
+               $result = array("response" => array("httpCode" => 400,"Message" => trans("messages.Invalid Phone number.")));
+               return json_encode($result);
+            }
+        }
+        if($otp_option == 1 || $otp_option == 3)
+        {
+            $template = DB::table('email_templates')
+                                ->select('from_email', 'from', 'subject', 'template_id','content')
+                                ->where('template_id','=',self::OTP_EMAIL_TEMPLATE)
+                                ->get();
+            if(count($template))
+      
+            {
+                $from      = $template[0]->from_email;
+                $from_name = $template[0]->from;
+                $subject   = $template[0]->subject;
+                if(!$template[0]->template_id)
+                {
+                    $template  = 'mail_template';
+                    $from      = getAppConfigEmail()->contact_email;
+                    $subject   = getAppConfig()->site_name." OTP Password";
+                    $from_name = "";
+                }
+                $content = array("name" => ucfirst($users->name), "otp_password" => "".$otp);
+				$email   = smtp($from, $from_name, $users->email, $subject, $content, $template);
+                $users   = Users::find($user_id);
+                $users->otp = $otp;
+                $users->updated_date = date("Y-m-d H:i:s");
+                $users->save();
+                if($otp_option == 3)
+                {
+					$result = array("response" => array("httpCode" => 200,"Message" => trans("messages.we have sent verification code to your mobile and to your email.")));
+					return json_encode($result);
+				}
+				else
+				{
+					
+                $result = array("response" => array("httpCode" => 200,"Message" => trans("messages.we have sent verification code to your email.")));
+			    }
+            }
+        }
+        return json_encode($result);
+    }
+
+
+        
+
+   
+    public function check_otp(Request $data)
+    {
+        $post_data = $data->all();
+        $coupon_details = DB::table('users')
+                        ->select('id')
+                        ->where('id','=',$post_data['user_id'])
+                        ->where('otp','=',$post_data['otp'])
+                        ->first();
+        $result = array("response"=>array("httpCode" => 400,"Message" => trans("messages.Order verification code is wrong"),"order_items"=>array()));
+        if(count($coupon_details)>0)
+        {
+            $result = array("response" => array("httpCode" => 200,"Message" => "Otp verified success"));
+        }
+        return json_encode($result);
+    }
+    
+    public function re_order(Request $data)
+    {
+        $post_data = $data->all();
+if(isset($post_data['language']) && $post_data['language']!='' && $post_data['language']==2)
+			   {
+				   App::setLocale('ch');
+			   }
+			   else {
+				   App::setLocale('en');
+			   }
+        $language_id = $post_data['language'];
+		$order_details = DB::select('SELECT o.id as order_id, o.customer_id,o.created_date,o.total_amount,o.delivery_charge,o.payment_gateway_id,o.invoice_id,o.order_status,order_status.name,
+			(select count(oo.id) as no_of_coupons FROM orders_outlet oo where oo.orders_id = o.id AND coupon_amount>0),
+			(select sum(oo.coupon_amount) as coupon_amount FROM orders_outlet oo where oo.orders_id = o.id AND coupon_amount>0)
+			FROM orders o
+			left join order_status order_status on order_status.id = o.order_status
+			WHERE o.id = ? AND o.customer_id = ? ',array($post_data['order_id'],$post_data['user_id']));
+
+
+		$query = 'pi.lang_id = (case when (select count(*) as totalcount from products_infos where products_infos.lang_id = '.$language_id.' and p.id = products_infos.id) > 0 THEN '.$language_id.' ELSE 1 END)';
+		$query3 = '"vendors_infos"."lang_id" = (case when (select count(*) as totalcount from vendors_infos where vendors_infos.lang_id = '.$language_id.' and vendors.id = vendors_infos.id) > 0 THEN '.$language_id.' ELSE 1 END)';
+		$query4 = '"payment_gateways_info"."language_id" = (case when (select count(*) as totalcount from payment_gateways_info where payment_gateways_info.language_id = '.$language_id.' and payment_gateways.id = payment_gateways_info.payment_id) > 0 THEN '.$language_id.' ELSE 1 END)';
+		$query5 = '"outlet_infos"."language_id" = (case when (select count(outlet_infos.language_id) as totalcount from outlet_infos where outlet_infos.language_id = '.getCurrentLang().' and outlets.id = outlet_infos.id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$wquery = '"weight_classes_infos"."lang_id" = (case when (select count(weight_classes_infos.lang_id) as totalcount from weight_classes_infos where weight_classes_infos.lang_id = '.$language_id.' and weight_classes.id = weight_classes_infos.id) > 0 THEN '.$language_id.' ELSE 1 END)';
+		foreach($order_details as $order_detail){
+			$order_detail->outlets = DB::select('SELECT vendors_infos.vendor_name, outlet_infos.outlet_name, vendors.logo_image, vendors.printer_name, vendors.contact_address, vendors.contact_email,payment_gateways_info.name as payment_gateway_name,oo.id as orders_outlet_id,oo.outlet_id,oo.vendor_id,oo.order_key_formated,oo.coupon_amount,oo.total_amount,oo.delivery_charge,oo.invoice_id,vendors.email
+				FROM orders_outlet oo
+				left join vendors vendors on vendors.id = oo.vendor_id
+				left join vendors_infos vendors_infos on vendors_infos.id = vendors.id
+				left join outlets outlets on outlets.id = oo.outlet_id
+				left join outlet_infos outlet_infos on outlet_infos.id = outlets.id
+				left join order_status order_status on order_status.id = '.$order_detail->order_status.'
+				left join payment_gateways payment_gateways on payment_gateways.id = '.$order_detail->payment_gateway_id.'
+				left join payment_gateways_info payment_gateways_info on payment_gateways_info.payment_id = payment_gateways.id
+				where '.$query3.' AND '.$query4.' AND '.$query5.' AND oo.orders_id = '.$order_detail->order_id.' ORDER BY oo.id');
+
+			foreach($order_detail->outlets as $out){
+				$out->items = DB::select('SELECT p.product_image,p.id AS product_id,oi.item_cost,oi.item_unit,oi.item_offer,pi.product_name,pi.description,p.weight,p.quantity,weight_classes_infos.title,weight_classes_infos.unit as unit_code
+					FROM orders_info oi
+					LEFT JOIN products p ON p.id = oi.item_id
+					LEFT JOIN products_infos pi ON pi.id = p.id
+					LEFT JOIN weight_classes ON weight_classes.id = p.weight_class_id
+					LEFT JOIN weight_classes_infos ON weight_classes_infos.id = weight_classes.id
+					where '.$query.' AND '.$wquery.' AND oi.orders_outlet_id = '.$out->orders_outlet_id.' ORDER BY oi.id');
+			}
+		}
+		foreach($order_details[0]->outlets as $outlet){
+			foreach($outlet->items as $item){
+					if(($item->quantity >0 )){
+						if($item->quantity < $item->item_unit )
+						{
+							$item_unit = $item->quantity;
+
+						}
+						else{
+
+                            $item_unit = $item->item_unit;
+
+						}
+
+
+					
+				$cart_array = array("user_id" => $post_data['user_id'],"token"=>$post_data['token'],"language" =>$post_data['language'],"qty"=>$item_unit,"total_amount"=>$item->item_cost,"product_id"=>$item->product_id,"outlet_id"=>$outlet->outlet_id,"vendors_id"=>$outlet->vendor_id);
+				$this->reorder_and_add_cart($cart_array);
+		 	     }
+			}
+		}
+		$result = array("response" => array("httpCode" => 200,"Message" => trans("messages.Order has been added to your cart.")));
+		return json_encode($result);
+    }
+    public function reorder_and_add_cart($data)
+    {
+        $post_data = $data;
+        if($post_data['language']==2)
+        {
+            App::setLocale('zh');
+        }
+        else {
+            App::setLocale('en');
+        }
+        $result = array();
+
+		$ucdata     = DB::table('cart')
+						->select('cart.cart_id')
+						->where("cart.user_id","=",$post_data['user_id'])
+						->get();
+		if(count($ucdata))
+		{// User already added some products to the cart
+			$uucdata = DB::table('cart')
+						->leftJoin('cart_outlet','cart_outlet.cart_id','=','cart.cart_id')
+						->leftJoin('cart_detail','cart_detail.cart_outlet_id','=','cart_outlet.cart_outlet_id')
+						->select('cart.cart_id','cart_detail.product_id','cart_detail.quantity','cart_detail.cart_detail_id')
+						->where("cart.user_id","=",$post_data['user_id'])
+						->where("cart_outlet.store_id","=",$post_data['vendors_id'])
+						->where("cart_outlet.outlet_id","=",$post_data['outlet_id'])
+						->get();
+			if(count($uucdata))
+			{// User already added some products(either same or different) from the same vendor & outlet to the cart
+				$cdata = DB::table('cart')
+							->leftJoin('cart_outlet','cart_outlet.cart_id','=','cart.cart_id')
+							->leftJoin('cart_detail','cart_detail.cart_outlet_id','=','cart_outlet.cart_outlet_id')
+							->select('cart.cart_id','cart_detail.product_id','cart_detail.quantity','cart_outlet.cart_outlet_id','cart_detail.cart_detail_id')
+							->where("cart.user_id","=",$post_data['user_id'])
+							->where("cart_outlet.store_id","=",$post_data['vendors_id'])
+							->where("cart_outlet.outlet_id","=",$post_data['outlet_id'])
+							->where("cart_detail.product_id","=",$post_data['product_id'])
+							->get();
+				if(count($cdata))
+				{// User already added the same product from the same vendor & outlet to the cart
+					$last_quantity = $cdata[0]->quantity;
+
+					$cart = Cart_model::find($cdata[0]->cart_id);
+					$cart->updated_at  = date("Y-m-d H:i:s");
+					$cart->save();
+
+					$cart_outlet = Cart_outlet::find($cdata[0]->cart_outlet_id);
+					$cart_outlet->updated_at  = date("Y-m-d H:i:s");
+					$cart_outlet->save();
+
+					$cart_info = Cart_info::find($cdata[0]->cart_detail_id);
+					if($post_data['qty'] == 0)
+					{
+						$affected = DB::update('delete from cart_detail where cart_detail_id = ?', array($cdata[0]->cart_detail_id));
+					}
+					else {
+						$cart_info->quantity = $post_data['qty'];
+						$cart_info->updated_at = date("Y-m-d H:i:s");
+						$cart_info->save();
+					}
+					$cart_item = 0;
+					if($post_data['user_id'])
+					{
+						$cdata = DB::table('cart')
+									->leftJoin('cart_outlet','cart_outlet.cart_id','=','cart.cart_id')
+									->leftJoin('cart_detail','cart_detail.cart_outlet_id','=','cart_outlet.cart_outlet_id')
+									->select('cart_detail.cart_outlet_id',DB::raw('count(cart_detail.cart_detail_id) as cart_count'))
+									->where("cart.user_id","=",$post_data['user_id'])
+									->groupby('cart_detail.cart_outlet_id')
+									->get();
+						if(count($cdata))
+						{
+							$cart_item = $cdata[0]->cart_count;
+						}
+					}
+					if($last_quantity > $post_data['qty'])
+					{
+						if($post_data['qty'] == 0){
+							$result = array("response" => array("httpCode" => 200 , "Message" => trans("messages.Cart has been deleted successfully!"),"type" => 2,"cart_count" => $cart_item));
+						}
+						else{
+							$result = array("response" => array("httpCode" => 200 , "Message" => trans("messages.The product quantity is increased in your cart."),"type" => 2,"cart_count" => $cart_item));
+						}
+					}
+					else {
+						$result = array("response" => array("httpCode" => 200 , "Message" => trans("messages.The product quantity is increased in your cart."),"type" => 2,"cart_count" => $cart_item));
+					}
+				}
+				else
+				{// User added other products from the same vendor & outlet to the cart
+					$ccdata = DB::table('cart')
+								->leftJoin('cart_outlet','cart_outlet.cart_id','=','cart.cart_id')
+								->select('cart.cart_id','cart_outlet.cart_outlet_id')
+								->where("cart.user_id","=",$post_data['user_id'])
+								->where("cart_outlet.store_id","=",$post_data['vendors_id'])
+								->where("cart_outlet.outlet_id","=",$post_data['outlet_id'])
+								->get();
+					$cart = Cart_model::find($ccdata[0]->cart_id);
+					$cart->updated_at  = date("Y-m-d H:i:s");
+					$cart->save();
+
+					$cart_outlet = Cart_outlet::find($ccdata[0]->cart_outlet_id);
+					$cart_outlet->updated_at  = date("Y-m-d H:i:s");
+					$cart_outlet->save();
+
+					$cart_info   = new Cart_info;
+					$cart_info->cart_outlet_id = $cart_outlet->cart_outlet_id;
+					$cart_info->product_id = $post_data['product_id'];
+					$cart_info->quantity   = $post_data['qty'];
+					$cart_info->created_at = date("Y-m-d H:i:s");
+					$cart_info->updated_at = date("Y-m-d H:i:s");
+					$cart_info->save();
+					$cart_item = 0;
+					if($post_data['user_id'])
+					{
+						$cdata = DB::table('cart')
+									->leftJoin('cart_outlet','cart_outlet.cart_id','=','cart.cart_id')
+									->leftJoin('cart_detail','cart_detail.cart_outlet_id','=','cart_outlet.cart_outlet_id')
+									->select('cart_detail.cart_outlet_id',DB::raw('count(cart_detail.cart_detail_id) as cart_count'))
+									->where("cart.user_id","=",$post_data['user_id'])
+									->groupby('cart_detail.cart_outlet_id')
+									->get();
+						if(count($cdata))
+						{
+							$cart_item = $cdata[0]->cart_count;
+						}
+					}
+					$result = array("response" => array("httpCode" => 200 , "Message" => trans("messages.The product has been added to your cart"),"type" => 1,"cart_count" => $cart_item));
+				}
+			}
+			else{// User already added some products from different vendor & outlet to the cart
+				$ucdata = DB::table('cart')
+							->select('cart.cart_id')
+							->where("cart.user_id","=",$post_data['user_id'])
+							->get();
+				$cart = Cart_model::find($ucdata[0]->cart_id);
+				$cart->updated_at  = date("Y-m-d H:i:s");
+				$cart->save();
+
+				$cart_outlet     = new Cart_outlet;
+				$cart_outlet->cart_id     = $cart->cart_id;
+				$cart_outlet->store_id    = $post_data['vendors_id'];
+				$cart_outlet->outlet_id   = $post_data['outlet_id'];
+				$cart_outlet->created_at  = date("Y-m-d H:i:s");
+				$cart_outlet->updated_at  = date("Y-m-d H:i:s");
+				$cart_outlet->save();
+
+				$cart_info   = new Cart_info;
+				$cart_info->cart_outlet_id = $cart_outlet->cart_outlet_id;
+				$cart_info->product_id     = $post_data['product_id'];
+				$cart_info->quantity       = $post_data['qty'];
+				$cart_info->created_at     = date("Y-m-d H:i:s");
+				$cart_info->updated_at     = date("Y-m-d H:i:s");
+				$cart_info->save();
+
+				$cart_item = 0;
+				if($post_data['user_id'])
+				{
+					$cdata = DB::table('cart')
+								->leftJoin('cart_outlet','cart_outlet.cart_id','=','cart.cart_id')
+								->leftJoin('cart_detail','cart_detail.cart_outlet_id','=','cart_outlet.cart_outlet_id')
+								->select('cart_detail.cart_outlet_id',DB::raw('count(cart_detail.cart_detail_id) as cart_count'))
+								->where("cart.user_id","=",$post_data['user_id'])
+								->groupby('cart_detail.cart_outlet_id')
+								->get();
+					if(count($cdata))
+					{
+						$cart_item = $cdata[0]->cart_count;
+					}
+				}
+				$result = array("response" => array("httpCode" => 200 , "Message" => trans("messages.The product has been added to your cart"),"type" => 1,"cart_count" => $cart_item));
+			}
+		}
+		else {// User did not added any product to cart yet. Going to add for the first time
+			$cart     = new Cart_model;
+			$cart->user_id     = $post_data['user_id'];
+			$cart->created_at  = date("Y-m-d H:i:s");
+			$cart->updated_at  = date("Y-m-d H:i:s");
+			$cart->save();
+
+			$cart_outlet     = new Cart_outlet;
+			$cart_outlet->cart_id     = $cart->cart_id;
+			$cart_outlet->store_id    = $post_data['vendors_id'];
+			$cart_outlet->outlet_id   = $post_data['outlet_id'];
+			$cart_outlet->created_at  = date("Y-m-d H:i:s");
+			$cart_outlet->updated_at  = date("Y-m-d H:i:s");
+			$cart_outlet->save();
+			
+			$cart_info   = new Cart_info;
+			$cart_info->cart_outlet_id = $cart_outlet->cart_outlet_id;
+			$cart_info->product_id     = $post_data['product_id'];
+			$cart_info->quantity       = $post_data['qty'];
+			$cart_info->created_at     = date("Y-m-d H:i:s");
+			$cart_info->updated_at     = date("Y-m-d H:i:s");
+			$cart_info->save();
+			$cart_item = 0;
+			if($post_data['user_id'])
+			{
+				$cdata = DB::table('cart')
+							->leftJoin('cart_outlet','cart_outlet.cart_id','=','cart.cart_id')
+							->leftJoin('cart_detail','cart_detail.cart_outlet_id','=','cart_outlet.cart_outlet_id')
+							->select('cart_detail.cart_outlet_id',DB::raw('count(cart_detail.cart_detail_id) as cart_count'))
+							->where("cart.user_id","=",$post_data['user_id'])
+							->groupby('cart_detail.cart_outlet_id')
+							->get();
+				if(count($cdata))
+				{
+					$cart_item = $cdata[0]->cart_count;
+				}
+			}
+			$result = array("response" => array("httpCode" => 200 , "Message" => trans("messages.The product has been added to your cart"),"type" => 1,"cart_count" => $cart_item));
+		}
+//        return json_encode($result,JSON_UNESCAPED_UNICODE);
+        return $result;
+    }
+    public function re_order_2(Request $data)
+    {
+        $post_data = $data->all();
+        $cart_oulet_id = '';
+        $query = 'SELECT o.vendor_id,o.outlet_id,oi.item_id AS product_id,oi.item_unit
+        FROM orders o
+        LEFT JOIN orders_info oi ON oi.order_id = o.id
+        where o.id = ? AND o.customer_id= ? ORDER BY oi.id';
+        $order_items = DB::select($query,array($post_data['order_id'],$post_data['user_id']));
+        $cartdata = DB::table('cart')
+                    ->select('cart.cart_id','cart.outlet_id','cart.outlet_id')
+                    ->where("cart.user_id","=",$post_data['user_id'])
+                    ->first();
+				if(count($cartdata))
+				{
+					$cart_oulet_id = $cartdata->outlet_id;
+					$reorder_oulet_id = $order_items[0]->outlet_id;
+					$cart_id = $cartdata->cart_id;
+					if($cart_oulet_id == $reorder_oulet_id){
+						
+						$affected_2 = DB::update('delete from cart where cart_id = ?', array($cart_id));
+                        $affected = DB::update('delete from cart_detail where cart_id = ?', array($cart_id));
+						foreach($order_items as $order)
+							{
+								$re_order_data = array();
+								$re_order_data['user_id'] = $post_data['user_id'];
+								$re_order_data['vendors_id'] = $order->vendor_id;
+								$re_order_data['outlet_id'] = $order->outlet_id;
+								$re_order_data['product_id'] = $order->product_id;
+								$re_order_data['qty'] = $order->item_unit;
+								$cart_data = $this->reorder_add_cart($re_order_data);
+							}
+					    $result = array("response" => array("httpCode" => 200,"Message" => trans("messages.Order has been added to your cart.")));
+					}
+					 else{
+						
+					 $result = array("response" => array("httpCode" => 400,"Message" => trans("messages.your cart has items from another branch, please choose the same branch to continue")));
+				       }
+				}
+	               else {
+							foreach($order_items as $order)
+							{
+								
+								$re_order_data = array();
+								$re_order_data['user_id'] = $post_data['user_id'];
+								$re_order_data['vendors_id'] = $order->vendor_id;
+								$re_order_data['outlet_id'] = $order->outlet_id;
+								$re_order_data['product_id'] = $order->product_id;
+								$re_order_data['qty'] = $order->item_unit;
+								$cart_data = $this->reorder_add_cart($re_order_data);
+							}
+							 $result = array("response" => array("httpCode" => 200,"Message" => trans("messages.Order has been added to your cart.")));
+				            //return json_encode($result);
+			         }
+			        
+				    return json_encode($result);
+    }
+    
+    public function reorder_add_cart($data)
+    {
+        $post_data = $data;
+        $ucdata = DB::table('cart')
+                    ->select('cart.cart_id')
+                    ->where("cart.user_id","=",$post_data['user_id'])
+                    ->get();
+        if(count($ucdata))
+        {
+                $uucdata = DB::table('cart')
+                    ->leftJoin('cart_detail','cart_detail.cart_id','=','cart.cart_id')
+                    ->select('cart.cart_id','cart_detail.product_id','cart_detail.quantity','cart_detail.cart_detail_id')
+                    ->where("cart.user_id","=",$post_data['user_id'])
+                    ->where("cart.store_id","=",$post_data['vendors_id'])
+                    ->where("cart.outlet_id","=",$post_data['outlet_id'])
+                    ->get();
+                    if(count($uucdata))
+                    {
+                            $cdata = DB::table('cart')
+                            ->leftJoin('cart_detail','cart_detail.cart_id','=','cart.cart_id')
+                            ->select('cart.cart_id','cart_detail.product_id','cart_detail.quantity','cart_detail.cart_detail_id')
+                            ->where("cart.user_id","=",$post_data['user_id'])
+                            ->where("cart.store_id","=",$post_data['vendors_id'])
+                            ->where("cart.outlet_id","=",$post_data['outlet_id'])
+                            ->where("cart_detail.product_id","=",$post_data['product_id'])
+                            ->get();
+                            if(count($cdata))
+                            {
+                                $cart = Cart_model::find($cdata[0]->cart_id);
+                                $cart->updated_at  = date("Y-m-d H:i:s");
+                                $cart->save();
+                                $cart_info = Cart_info::find($cdata[0]->cart_detail_id);
+                                $quntiry = $cart_info->quantity + $post_data['qty'];
+                                $cart_info->quantity  = $quntiry;
+                                $cart_info->updated_at  = date("Y-m-d H:i:s");
+                                $cart_info->save();
+                                $cart_item = 0;
+                                if($post_data['user_id'])
+                                {
+                                    $cdata = DB::table('cart')
+                                            ->leftJoin('cart_detail','cart_detail.cart_id','=','cart.cart_id')
+                                            ->select('cart_detail.cart_id',DB::raw('count(cart_detail.cart_detail_id) as cart_count'))
+                                            ->where("cart.user_id","=",$post_data['user_id'])
+                                            ->groupby('cart_detail.cart_id')
+                                            ->get();
+                                    if(count($cdata))
+                                    {
+                                        $cart_item = $cdata[0]->cart_count;
+                                    }
+                                }
+                                return true;
+                            }
+                            else 
+                            {
+                                $ccdata = DB::table('cart')
+                                ->select('cart.cart_id')
+                                ->where("cart.user_id","=",$post_data['user_id'])
+                                ->where("cart.store_id","=",$post_data['vendors_id'])
+                                ->where("cart.outlet_id","=",$post_data['outlet_id'])
+                                ->get();
+                                if(count($ccdata)){
+                                    $cart = Cart_model::find($ccdata[0]->cart_id);
+                                    $cart->updated_at  = date("Y-m-d H:i:s");
+                                    $cart->save();
+                                }        
+                                else {        
+                                    $cart     = new Cart_model;
+                                    $cart->user_id          = $post_data['user_id'];
+                                    $cart->store_id          = $post_data['vendors_id'];
+                                    $cart->outlet_id          = $post_data['outlet_id'];
+                                    $cart->cart_status          = 1;
+                                    $cart->created_at  = date("Y-m-d H:i:s");
+                                    $cart->updated_at  = date("Y-m-d H:i:s");
+                                    $cart->save();
+                                }
+                                $cart_info   = new Cart_info;
+                                $cart_info->cart_id          = $cart->cart_id;
+                                $cart_info->product_id          = $post_data['product_id'];
+                                $cart_info->quantity          = $post_data['qty'];
+                                $cart_info->created_at  = date("Y-m-d H:i:s");
+                                $cart_info->updated_at  = date("Y-m-d H:i:s");
+                                $cart_info->save();
+                                $cart_item = 0;
+                                if($post_data['user_id'])
+                                {
+                                    $cdata = DB::table('cart')
+                                            ->leftJoin('cart_detail','cart_detail.cart_id','=','cart.cart_id')
+                                            ->select('cart_detail.cart_id',DB::raw('count(cart_detail.cart_detail_id) as cart_count'))
+                                            ->where("cart.user_id","=",$post_data['user_id'])
+                                            ->groupby('cart_detail.cart_id')
+                                            ->get();
+                                    if(count($cdata))
+                                    {
+                                        $cart_item = $cdata[0]->cart_count;
+                                    }
+                                }
+                                //$result = array("response" => array("httpCode" => 200 , "Message" => "Cart has been added successfully!","type" => 1,"cart_count" => $cart_item));
+                                return true;
+                            }
+                    }
+                    else
+                    {
+                        $cart_item = 0;
+                        if($post_data['user_id'])
+                        {
+                            $cdata = DB::table('cart')
+                            ->leftJoin('cart_detail','cart_detail.cart_id','=','cart.cart_id')
+                            ->select('cart_detail.cart_id',DB::raw('count(cart_detail.cart_detail_id) as cart_count'))
+                            ->where("cart.user_id","=",$post_data['user_id'])
+                            ->groupby('cart_detail.cart_id')
+                            ->get();
+                            if(count($cdata))
+                            {
+                                $cart_item = $cdata[0]->cart_count;
+                            }
+                        }
+                        return false;
+                    }
+        }
+        else 
+        {
+            $cart     = new Cart_model;
+            $cart->user_id          = $post_data['user_id'];
+            $cart->store_id          = $post_data['vendors_id'];
+            $cart->outlet_id          = $post_data['outlet_id'];
+            $cart->cart_status          = 1;
+            $cart->created_at  = date("Y-m-d H:i:s");
+            $cart->updated_at  = date("Y-m-d H:i:s");
+            $cart->save();
+            
+            $cart_info   = new Cart_info;
+            $cart_info->cart_id          = $cart->cart_id;
+            $cart_info->product_id          = $post_data['product_id'];
+            $cart_info->quantity          = $post_data['qty'];
+            $cart_info->created_at  = date("Y-m-d H:i:s");
+            $cart_info->updated_at  = date("Y-m-d H:i:s");
+            $cart_info->save();
+            $cart_item = 0;
+            if($post_data['user_id']){
+                $cdata = DB::table('cart')
+                ->leftJoin('cart_detail','cart_detail.cart_id','=','cart.cart_id')
+                ->select('cart_detail.cart_id',DB::raw('count(cart_detail.cart_detail_id) as cart_count'))
+                ->where("cart.user_id","=",$post_data['user_id'])
+                ->groupby('cart_detail.cart_id')
+                ->get();
+                if(count($cdata))
+                {
+                    $cart_item = $cdata[0]->cart_count;
+                }
+            }
+            return true;
+        }            
+        return false;
+    }
+    
+    public function return_order(Request $data)
+    {
+		$rules = [
+            'return_reason' => ['required'],
+            //'title'=> ['required'],
+            'comments'=> ['required'],
+        ];
+        $post_data = $data->all();
+        $error = $result = array();
+        $validator = app('validator')->make($post_data, $rules);
+        if ($validator->fails()) 
+        {
+            $errors = '';
+            $j = 0;
+            foreach( $validator->errors()->messages() as $key => $value) 
+            {
+                $error[] = is_array($value)?implode( ',',$value ):$value;
+            }
+            $errors = implode( ", \n ", $error );
+            $result = array("response" => array("httpCode" => 400, "status" => false, "Error" => trans("messages.Error List"), "Message" => $errors));
+        }
+        else 
+        {
+			$return_orders     = new return_orders;
+			$return_orders->order_id          = $post_data['order_id'];
+			$return_orders->return_reason          = $post_data['return_reason'];
+			$return_orders->return_comments          = trim($post_data['comments']);
+			$return_orders->return_action_id          = 1;
+			$return_orders->return_status          = 1;
+			$return_orders->created_by          = $post_data['user_id'];
+			$return_orders->created_at  = date("Y-m-d H:i:s");
+			$return_orders->modified_at  = date("Y-m-d H:i:s");
+			$return_orders->modified_by  = $post_data['user_id'];
+			$return_orders->save();
+
+			//Get the order related data here and updated with log table
+			$order_data = orders::find($post_data['order_id']);
+			$Orders = new return_orders_log;
+//			$Orders->vendor_id    = $order_data->vendor_id;
+//			$Orders->outlet_id    = $order_data->outlet_id;
+			$Orders->order_id    = $post_data['order_id'];
+			$Orders->return_orders_id = $return_orders->id;
+			$Orders->customer_id = $order_data->customer_id;
+			$Orders->return_status = 1;
+			$Orders->return_reason = $post_data['return_reason'];
+			$Orders->return_action = 1;
+			$Orders->order_status = 17;
+			$Orders->modified_date = date("Y-m-d H:i:s");
+			$Orders->created_date = date("Y-m-d H:i:s");
+			$Orders->customer_notified = 1;
+			$Orders->modified_by = $post_data['user_id'];
+			$Orders->save();
+
+			//Update return order status with orders table
+			DB::update('update orders set order_status = ? where id = ?', array(16,$post_data['order_id']));
+			$result = array("response" => array("httpCode" => 200,"Message" => "Order return initiated successfully"));
+
+			/*Internal Admin Notifications Storing with notifications table
+			* When order is returned by customer insert the notification logs for Admin & Vendor
+			*/
+			$mess ="Your Order #OR".$order_data->id." has been returned";
+			$values = array('order_id' => $post_data['order_id'],
+						'customer_id' => $order_data->customer_id,
+//						'vendor_id' => $order_data->vendor_id,
+//						'outlet_id' => $order_data->outlet_id,
+						'message' => $mess,
+						'read_status' => 0,
+						'created_date' => date('Y-m-d H:i:s'));
+			DB::table('notifications')->insert($values);
+
+			//Send mail to admin regarding when order returned by customer here
+			$template=DB::table('email_templates')
+					->select('*')
+					->where('template_id','=',self::RETURN_STATUS_CUSTOMER_EMAIL_TEMPLATE)
+					->get();
+			if(count($template))
+			{
+				$from = $template[0]->from_email;
+				$from_name = $template[0]->from;
+				$subject = $template[0]->subject;
+				if(!$template[0]->template_id)
+				{
+					$template = 'mail_template';
+					$from = getAppConfigEmail()->contact_email;
+					$subject = getAppConfig()->site_name." Return Order Status Information";
+					$from_name = "";
+				}
+				$users = Users::find(1);
+				$customers = Users::find($post_data['user_id']);
+				$return_reason = return_reasons::find($post_data['return_reason']);
+				$cont_replace = "Following user <b>".$customers->name."</b> was returned order <b>#OR". $order_data->id ."</b>";
+				$cont_replace1 = "Kindly find the reason for returning the order <b>". $return_reason->name ."</b> and make it necessary arrangements for the order.Kindly find the below comments from a customer: <br/><b>".$post_data['comments']."</b>";
+				$content = array("name" => $users->name,"email"=>$users->email,"replacement"=>$cont_replace,"replacement1"=>$cont_replace1);
+				$email = smtp($from,$from_name,$users->email,$subject,$content,$template);
+			}
+		}
+        return json_encode($result);
+    }
+    
+    public function paypal_payment(Request $data)
+    {
+        
+        $post_data = $data->all();
+        $payment_array =  json_decode($post_data['payment_array']);
+        $payment_arrays =  json_decode($post_data['payment_array'],true);
+        $rules = array();
+        if($payment_array->order_type == 1)
+        {
+            $rules['delivery_address'] = 'required';
+        }
+        $validation = app('validator')->make($payment_arrays,$rules);
+        // process the validation
+        if ($validation->fails()) 
+        {
+            foreach( $validation->errors()->messages() as $key => $value) 
+            {
+                $errors[] = is_array($value)?implode( ',',$value ):$value;
+            }
+            $errors = implode( ", \n ", $errors );
+            $result = array("response" => array("httpCode" => 400, "status" => false, "Message" => $errors, "Error" => trans("messages.Error List")));
+        }
+        else
+        {
+            $total_amt = $payment_array->total;
+            if($payment_array->coupon_id != 0)
+            {
+                $coupon_details = DB::table('coupons')
+                                ->select('*','coupons.id as coupons_id')
+                                ->leftJoin('coupon_outlet','coupon_outlet.coupon_id','=','coupons.id')
+                                ->where('coupons.id','=',$payment_array->coupon_id)
+                                ->first();
+                if(count($coupon_details) == 0)
+                {
+                    $result = array("response" => array("httpCode" => 400,"Message" => "No coupons found"));
+                    return json_encode($result);
+                }
+                $coupon_user_limit_details = DB::table('user_cart_limit')
+                        ->select('*')
+                        ->where('user_id','=',$post_data['user_id'])
+                        ->where('coupon_id','=',$payment_array->coupon_id)
+                        ->first();
+                if(count($coupon_user_limit_details)>0)
+                {
+                    if($coupon_user_limit_details->cus_order_count >= $coupon_user_limit_details->user_limit)
+                    {
+                        $result = array("response" => array("httpCode" => 400,"Message" => "Max order limit has been crossed", "order_items"=>$order_items,"delivery_details"=>$delivery_details));
+                        return json_encode($result);
+                    }
+                    if($coupon_user_limit_details->total_order_count >= $coupon_user_limit_details->coupon_limit)
+                    {
+                        $result = array("response" => array("httpCode" => 400,"Message" => "Max order limit has been crossed", "order_items"=>$order_items,"delivery_details"=>$delivery_details));
+                        return json_encode($result);
+                    }
+                }
+            }
+        }
+        
+        $paypal=Paypal::getAll(array('count' => 1, 'start_index' => 0), $this->_apiContext);
+        // process the validation
+             //Save Details
+            try    {
+
+                $payer = PayPal    ::Payer();
+                $payer->setPaymentMethod('paypal');
+                $amount = PayPal:: Amount();
+                $amount->setCurrency('USD');
+                $amount->setTotal($total_amt);
+                $items = array();
+                $index = 0;
+                foreach ($payment_array as $_item) {
+                   $index++;
+                   $items[$index] = new Item();
+                   $items[$index]->setName($_item['name_key'])
+                                 ->setCurrency($_item['currency_key'])
+                                 ->setQuantity($_item['quantity_key'])
+                                 ->setPrice($_item['price_key']);
+                }
+                
+                
+                
+                
+                
+                $itemList = new ItemList(); $itemList->setItems(array($item1));
+                $transaction = PayPal::Transaction();
+                $transaction->setAmount($amount);
+                $info ='Book Appointment - '.$data['doctor_first_name'].' Pay on $ '.$pay;
+                $transaction->setDescription($info)->setItemList($itemList);
+                if(isset($_POST['location_visit_status']) && $_POST['location_visit_status']!=''){
+                    //$transaction->setDescription('Visit Patient Location - '.$_POST['consulting_fees']);
+                }
+                $redirectUrls = PayPal:: RedirectUrls();
+                $redirectUrls->setReturnUrl(route('getDone'));
+                $redirectUrls->setCancelUrl(route('getCancel'));
+                $payment = PayPal::Payment();
+                $payment->setIntent('sale');
+                $payment->setPayer($payer);
+                $payment->setRedirectUrls($redirectUrls);
+                $payment->setTransactions(array($transaction));
+                $response = $payment->create($this->_apiContext);
+                
+                $redirectUrl = $response->links[1]->href;
+                return redirect()->to($redirectUrl);
+            }
+            catch(Exception $ex) {
+                 ResultPrinter::printError("Created Payment Using PayPal. Please visit the URL to Approve.", "Payment", null, $request, $ex); exit(1);
+            }
+            Session::flash('message', 'Error: Oops. Something went wrong. Please try again later.'); 
+            return Redirect::to('/');
+    }
+    public function convert_currency(Request $data)
+    {
+        $post = $data->all();
+        $from_currency = $data->from_currency;
+        $to_currency = getCurrencycode();
+        $amount = urlencode($total_amount);
+        $from_currency = urlencode($from_currency);
+        $to_currency = urlencode($to_currency);
+        $get = file_get_contents("https://www.google.com/finance/converter?a=$amount&from=$from_currency&to=$to_currency");
+        $get = explode("<span class=bld>",$get);
+        $converted_amount = $total_amount;
+        if(isset($get[1]))
+        {
+            $get = explode("</span>",$get[1]);
+            if(isset($get[0]))
+            {
+                $converted_amount = preg_replace("/[^0-9\.]/", null, $get[0]);
+            }
+        }
+    }
+    
+    public function cancel_order(Request $data)
+    {
+        $post_data = $data->all();
+        $orders=DB::table('transaction')
+             ->select('*')
+             ->where('order_id','=',$post_data['order_id'])
+             ->where('payment_status','=','SUCCESS')
+             ->get();
+        if(!count($orders))
+        {
+            $result = array("response"=>array("httpCode" => 400,"Message" => "No orders found","order_items"=>array()));
+            return json_encode($result);
+        }
+        if($orders[0]->payment_type == "paypal")
+        {
+            $transaction_id = $orders[0]->transaction_id;
+            $capture_get = Capture::get($transaction_id, $this->_apiContext);
+            if($capture_get->getState()=="completed")
+            {
+                $refund = new Refund();
+                $amt = new Amount();
+                $amt->setCurrency("USD")
+                ->setTotal($capture_get->getAmount()->getTotal());
+                $refund->setAmount($amt);
+                $refundstatus=false;
+                try{
+                        $captureRefund = $capture_get->refund($refund, $this->_apiContext);
+                        $Refundget=Refund::get($captureRefund->getId(), $this->_apiContext);
+                        $refund_id = $Refundget->getId();
+                        $refund_status = $Refundget->getState();
+                        if($Refundget->getId()){
+                            $transaction = Transaction::find($orders[0]->id);
+                            $transaction->refund_id = $refund_id;
+                            $transaction->refund_status = $refund_status;
+                            $transaction->captured = 4;
+                            $transaction->refund_updated_date = date("Y-m-d H:i:s");
+                            $transaction->save();
+                            $refundstatus= true;
+                        }
+                }
+                catch (PayPal\Exception\PayPalConnectionException $ex) {
+                        echo $ex->getCode(); // Prints the Error Code
+                        echo $ex->getData(); // Prints the detailed error message
+                        exit;
+                }
+                catch (Exception $ex) {
+                        echo $ex->getMessage();
+                        die($ex);
+                        echo "Problem in order refund process"; exit;
+                }
+                if($refundstatus)
+                {
+                    $affected = DB::update('update orders set order_status = ? where id = ? AND order_status = ?', array(11,$post_data['order_id'],1));
+                    $result = array("response" => array("httpCode" => 200,"Message" => trans("messages.Order has been cancelled ")));
+
+//                    $order_detail = $this->get_order_details($post_data['order_id']);
+//                    $order_details = $order_detail["order_items"];
+//                    $delivery_details = $order_detail["delivery_details"];
+//                    $vendor_info = $order_detail["vendor_info"];
+					$user_array = array("user_id" => $post_data['user_id'],"language"=>$post_data['language'],"order_id" =>$post_data['order_id']);
+                    $order_detail = $this->get_order_detail($user_array);
+                    $order_details = $order_detail["order_detail"][0];
+                    $delivery_details = $order_detail["delivery_details"];
+
+                    $logo = url('/assets/front/'.Session::get("general")->theme.'/images/'.Session::get("general")->theme.'.png');
+
+//					if(file_exists(base_path().'/public/assets/admin/base/images/vendors/list/'.$vendor_info[0]->logo_image)) { 
+//						$vendor_image ='<img width="100px" height="100px" src="'.URL::to("assets/admin/base/images/vendors/list/".$vendor_info[0]->logo_image).'") >';
+//					}
+//					else
+//					{  
+//						$vendor_image ='<img width="100px" height="100px" src="'.URL::to("assets/front/".Session::get('general')->theme."/images/blog_no_images.png").'") >';
+//					}
+					$delivery_date = date("d F, l", strtotime($delivery_details[0]->delivery_date)); 
+					$delivery_time = date('g:i a', strtotime($delivery_details[0]->start_time)).'-'.date('g:i a', strtotime($delivery_details[0]->end_time));
+					$users=Users::find($order_details->customer_id); 
+					$to=$users->email;
+					$subject = 'Your Order with '.getAppConfig()->site_name.' [#OR'.$order_details->order_id .'] has been successfully '.$order_details->name.'!';
+					$template=DB::table('email_templates')
+					->select('*')
+					->where('template_id','=',self::ORDER_STATUS_UPDATE_USER)
+					->get();
+					if(count($template))
+					{
+						$from = $template[0]->from_email;
+						$from_name=$template[0]->from;
+						if(!$template[0]->template_id)
+						{
+							$template = 'mail_template';
+							$from=getAppConfigEmail()->contact_mail;
+						}
+						$orders_link ='<a href="'.URL::to("orders").'" title="'.trans("messages.View").'">'.trans("messages.View").'</a>';
+						$content =array('name' =>"".$users->name,'order_key'=>"#OR".$order_details->order_id,'status_name'=>"".$order_details->name,'orders_link'=>"".$orders_link);
+						$attachment = "";
+						$email=smtp($from,$from_name,$to,$subject,$content,$template,$attachment);
+					}            
+/*
+                    if(file_exists(base_path().'/public/assets/admin/base/images/vendors/list/'.$vendor_info[0]->logo_image)) { 
+                        $vendor_image ='<img width="100px" height="100px" src="'.URL::to("assets/admin/base/images/vendors/list/".$vendor_info[0]->logo_image).'") >';
+                    }
+                    else
+                    {  
+                        $vendor_image ='<img width="100px" height="100px" src="'.URL::to("assets/front/".Session::get('general')->theme."/images/blog_no_images.png").'") >';
+                    }
+                    $delivery_date = date("d F, l", strtotime($delivery_details[0]->delivery_date)); 
+                    $delivery_time = date('g:i a', strtotime($delivery_details[0]->start_time)).'-'.date('g:i a', strtotime($delivery_details[0]->end_time));
+                    $users=Users::find($delivery_details[0]->customer_id); 
+                    $to=$users->email;
+                    $subject = 'Your Order with '.getAppConfig()->site_name.' ['.$vendor_info[0]->order_key_formated .'] has been successfully '.$vendor_info[0]->status_name.'!';
+                    $template=DB::table('email_templates')
+                    ->select('*')
+                    ->where('template_id','=',self::ORDER_STATUS_UPDATE_USER)
+                    ->get();
+                    if(count($template))
+                    {
+                        $from = $template[0]->from_email;
+                        $from_name=$template[0]->from;
+                        if(!$template[0]->template_id)
+                        {
+                            $template = 'mail_template';
+                            $from=getAppConfigEmail()->contact_mail;
+                        }
+                        $orders_link ='<a href="'.URL::to("orders").'" title="'.trans("messages.View").'">'.trans("messages.View").'</a>';
+                        $content =array('name' =>"".$users->name,'order_key'=>"".$vendor_info[0]->order_key_formated,'status_name'=>"".$vendor_info[0]->status_name,'orders_link'=>"".$orders_link);
+                        $attachment = "";
+                        $email=smtp($from,$from_name,$to,$subject,$content,$template,$attachment);
+                    }
+*/
+                }
+                else
+                {
+                    $result = array("response"=>array("httpCode" => 400,"Message" => "No orders found","order_items"=>array()));
+                }
+            }
+            else
+            {
+                $result = array("response"=>array("httpCode" => 400,"Message" => "No orders found","order_items"=>array()));
+            }
+        }
+        else
+        {
+            $affected = DB::update('update orders set order_status = ? where id = ? AND order_status = ?', array(11,$post_data['order_id'],1));
+//          $order_detail = $this->get_order_details($post_data['order_id']);
+//          $order_details = $order_detail["order_items"];
+//          $delivery_details = $order_detail["delivery_details"];
+//          $vendor_info = $order_detail["vendor_info"];
+			$user_array = array("user_id" => $post_data['user_id'],"language"=>$post_data['language'],"order_id" =>$post_data['order_id']);
+			$order_detail = $this->get_order_detail($user_array);
+			$order_details = $order_detail["order_detail"][0];
+			$delivery_details = $order_detail["delivery_details"];
+
+            $logo = url('/assets/front/'.Session::get("general")->theme.'/images/'.Session::get("general")->theme.'.png');
+
+//            if(file_exists(base_path().'/public/assets/admin/base/images/vendors/list/'.$vendor_info[0]->logo_image)) { 
+//                $vendor_image ='<img width="100px" height="100px" src="'.URL::to("assets/admin/base/images/vendors/list/".$vendor_info[0]->logo_image).'") >';
+//            }
+//            else
+//            {  
+//                $vendor_image ='<img width="100px" height="100px" src="'.URL::to("assets/front/".Session::get('general')->theme."/images/blog_no_images.png").'") >';
+//            }
+            $delivery_date = date("d F, l", strtotime($delivery_details[0]->delivery_date)); 
+            $delivery_time = date('g:i a', strtotime($delivery_details[0]->start_time)).'-'.date('g:i a', strtotime($delivery_details[0]->end_time));
+            $users=Users::find($order_details->customer_id); 
+            $to=$users->email;
+            $subject = 'Your Order with '.getAppConfig()->site_name.' [#OR'.$order_details->order_id .'] has been successfully '.$order_details->name.'!';
+            $template=DB::table('email_templates')
+            ->select('*')
+            ->where('template_id','=',self::ORDER_STATUS_UPDATE_USER)
+            ->get();
+            if(count($template))
+            {
+                $from = $template[0]->from_email;
+                $from_name=$template[0]->from;
+                if(!$template[0]->template_id)
+                {
+                    $template = 'mail_template';
+                    $from=getAppConfigEmail()->contact_mail;
+                }
+                $orders_link ='<a href="'.URL::to("orders").'" title="'.trans("messages.View").'">'.trans("messages.View").'</a>';
+                $content =array('name' =>"".$users->name,'order_key'=>"#OR".$order_details->order_id,'status_name'=>"".$order_details->name,'orders_link'=>"".$orders_link);
+                $attachment = "";
+                $email=smtp($from,$from_name,$to,$subject,$content,$template,$attachment);
+            }            
+/*
+            if(file_exists(base_path().'/public/assets/admin/base/images/vendors/list/'.$vendor_info[0]->logo_image)) { 
+                $vendor_image ='<img width="100px" height="100px" src="'.URL::to("assets/admin/base/images/vendors/list/".$vendor_info[0]->logo_image).'") >';
+            }
+            else
+            {  
+                $vendor_image ='<img width="100px" height="100px" src="'.URL::to("assets/front/".Session::get('general')->theme."/images/blog_no_images.png").'") >';
+            }
+            $delivery_date = date("d F, l", strtotime($delivery_details[0]->delivery_date)); 
+            $delivery_time = date('g:i a', strtotime($delivery_details[0]->start_time)).'-'.date('g:i a', strtotime($delivery_details[0]->end_time));
+            $users=Users::find($delivery_details[0]->customer_id); 
+            $to=$users->email;
+            $subject = 'Your Order with '.getAppConfig()->site_name.' ['.$vendor_info[0]->order_key_formated .'] has been successfully '.$vendor_info[0]->status_name.'!';
+            $template=DB::table('email_templates')
+            ->select('*')
+            ->where('template_id','=',self::ORDER_STATUS_UPDATE_USER)
+            ->get();
+            if(count($template))
+            {
+                $from = $template[0]->from_email;
+                $from_name=$template[0]->from;
+                if(!$template[0]->template_id)
+                {
+                    $template = 'mail_template';
+                    $from=getAppConfigEmail()->contact_mail;
+                }
+                $orders_link ='<a href="'.URL::to("orders").'" title="'.trans("messages.View").'">'.trans("messages.View").'</a>';
+                $content =array('name' =>"".$users->name,'order_key'=>"".$vendor_info[0]->order_key_formated,'status_name'=>"".$vendor_info[0]->status_name,'orders_link'=>"".$orders_link);
+                $attachment = "";
+                $email=smtp($from,$from_name,$to,$subject,$content,$template,$attachment);
+            }            
+*/
+
+            $result = array("response" => array("httpCode" => 200,"Message" => trans("messages.Order has been cancelled")));
+        }
+        return json_encode($result);
+    }
+    
+    public function delete_sms(Request $data)
+    {
+        $twilo_sid    = "AC648e25ad93bdcbb9788baa76f1735e3c";
+        $twilio_token = "cca34a4a0811d1d4161470812348bf5c";
+        $from_number  = "+14055627423";
+        $client = new Services_Twilio($twilo_sid, $twilio_token);
+        $call = $client->account->messages->getIterator(0, 50, array('DateCreated>' => '2017-01-10 08:00:00', 'DateCreated<' => '2016-12-01'));
+        foreach($call as $c)
+        {
+            print_r($c);die;
+        }echo 2;die;
+    }
+public function get_braintree_result(Request $data)
+    {
+		$post_data = $data->all();
+          include_once(base_path().'/public/braintree-php-3.29.0/lib/Braintree.php');
+		$Braintree_Configuration = new Braintree_Configuration;
+		$params = array(
+			//Production
+		"testmode"   => "off",
+		"merchantid" => "hmvyjss7dzvn9hsh",
+	    "publickey"  => "ng4z75t8hz8wjdcz",
+		"privatekey" => "a5bf6b5be62c740b125f5df41cfa2567",
+		
+
+  //sandbox
+		"merchantid" => "krht425cgx9p3dcp",
+		"publickey"  => "6dgvz5w542wx7pv7",
+		"privatekey" => "64fe6cbbbbb943b47c6efdd268da825e",
+		);
+
+
+
+		
+
+
+
+		if ($params['testmode'] == "on")
+		{
+		   $Braintree_Configuration=Braintree_Configuration::environment('sandbox');
+		}
+		else
+		{
+		   $Braintree_Configuration=Braintree_Configuration::environment('production');
+		}
+		$Braintree_Configuration= Braintree_Configuration::merchantId($params["merchantid"]);
+		$Braintree_Configuration= Braintree_Configuration::publicKey($params["publickey"]);
+		$Braintree_Configuration= Braintree_Configuration::privateKey($params["privatekey"]);
+                $data = json_decode($post_data['sale']);
+                                  $datas = array(
+						'amount'   => $data->amount,
+						'orderId'  => $data->orderId,
+						'paymentMethodNonce' =>$data->paymentMethodNonce,
+						'customer' => array(
+						'firstName' => $data->firstName,
+						'lastName'  => $data->lastName,
+						'phone'     => $data->phone,
+						'email'     => $data->email
+						),
+						'billing' => array(
+						'firstName'         => $data->firstName,
+						'lastName'          => $data->lastName,
+						
+						),
+						'options' => array(
+						'submitForSettlement'   => true,
+						'storeInVaultOnSuccess' => true
+						));
+		
+
+	         $results = Braintree_Transaction::sale($datas);
+
+if ($results->success)
+{
+	  $result = array("response" => array("httpCode" => 200,"Message" => trans("messages.payment  has been sucesses"),"result" => $results));		
+
+}else{
+$result = array("response" => array("httpCode" => 400,"Message" => trans("messages.payment has been cancelled"),"result" => $results));
+
+}
+		
+	 return json_encode($result);	
+    }
+}

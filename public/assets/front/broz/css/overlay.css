@@ -1,0 +1,85 @@
+
+.toggle-button {
+    position: fixed;
+    top: 8px;
+    right: -15px;
+    padding: 9px 10px;
+    margin: 8px 15px 8px 0;
+    height: 20px;
+    width: 70px;
+    cursor: pointer;
+    z-index: 3;
+}
+
+.bar {
+    background-color: #18c47c;
+    display: block;
+    width: 100%;
+    height: 5px;
+    border: 0;
+    -webkit-transition: all .35s ease;
+    transition: all .35s ease;
+}
+.bar + .bar {
+    margin-top: 7px;
+}
+.middle {
+    top: 11px;
+}
+.bottom {
+    top: 22px;
+}
+.toggle-button:hover {
+    opacity: .7;
+}
+.toggle-active .bar {
+    background-color: #18c47c;margin: 4px 0 0;
+}
+.toggle-active .top {
+    -webkit-transform: translateY(6px) translateX(0) rotate(45deg);
+}
+.toggle-active .middle {
+   opacity: 0;
+}
+.toggle-active .bottom {
+    -webkit-transform: translateY(-12px) translateX(0) rotate(-45deg);
+}
+
+.overlay {
+    position: absolute;
+   background: -moz-linear-gradient(270deg, rgba(24,196,124,1) 0%, rgba(18,196,116,1) 100%); /* ff3.6+ */
+background: -webkit-gradient(linear, left top, left bottom, color-stop(0%, rgba(24,196,124,1)), color-stop(100%, rgba(18,196,116,1))); /* safari4+,chrome */
+background: -webkit-linear-gradient(270deg, rgba(24,196,124,1) 0%, rgba(18,196,116,1) 100%); /* safari5.1+,chrome10+ */
+background: -o-linear-gradient(270deg, rgba(24,196,124,1) 0%, rgba(18,196,116,1) 100%); /* opera 11.10+ */
+background: -ms-linear-gradient(270deg, rgba(24,196,124,1) 0%, rgba(18,196,116,1) 100%); /* ie10+ */
+background: linear-gradient(180deg, rgba(24,196,124,1) 0%, rgba(18,196,116,1) 100%); /* w3c */ 
+    top: 80px;
+    left: 0;
+    width: 100%;
+  display:inline-block;
+    opacity: 0;
+    -webkit-transition: opacity .35s, visibility .35s, height .35s; z-index:-2;
+}
+.nav-active {
+    opacity: 1;
+    visibility: visible; display:inline-block; z-index:6;
+    
+/*    max-height: 340px;*/
+}
+.overlay ul {
+    display: block;
+    left: 0; margin:0px;
+
+    text-align: center;
+    list-style: none;
+    padding: 0;
+}
+.overlay ul li {
+    display: block; padding:12px 0;
+}
+.overlay ul li a:hover{ background:#fff; color:#000;}
+.overlay ul li:hover{ background:#fff; }
+.overlay ul li a {
+    color: #fff; display:inline-block; width:100%;
+    text-decoration: none;font-family: 'LatoWeb'; font-size:30px;
+}

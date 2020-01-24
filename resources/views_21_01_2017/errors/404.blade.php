@@ -1,0 +1,22 @@
+    @extends('layouts.app')
+	@section('content')
+<link href="<?php echo URL::asset('assets/front/'.Session::get("general")->theme.'/css/animations.css');?>" rel="stylesheet" />
+    <!-- content start -->
+		 <section class="store_list">
+        <div class="container">
+<div class="four_not_error">
+<img src="<?php echo URL::asset('assets/front/'.Session::get("general")->theme.'/images/404.png');?>" alt="404">
+<h1>OMG! Something is went wrong...</h1>
+<h3>We  can’t find the page you’re looking for. Please head<br/> back to home.</h3>
+<a class="hvr-ripple-out" href="{{ URL::to('/') }}" title="Home">Home</a>
+</div>
+        </div>
+    </section>
+	<script type="text/javascript" src="<?php echo URL::asset('assets/front/'.Session::get("general")->theme.'/js/css3-animate-it.js');?>"></script>
+     <script type="text/javascript">
+ $(document).ready( function() {
+	$('.header_outer').addClass('portfolio_header');
+	$('.get_in_touch').hide();
+ });
+</script>
+    @endsection

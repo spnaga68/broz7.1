@@ -1,0 +1,91 @@
+@import url('https://fonts.googleapis.com/css?family=Poppins:400,500,600&display=swap');
+
+html,
+body {
+  font-family: 'Poppins', sans-serif;
+}
+
+/* utilities*/
+.navbar-light .navbar-nav .nav-link {
+  font-size: 1rem;
+  font-weight: 300;
+  color: rgb(83, 83, 83);
+}
+
+.topmargin {
+margin-top: 60px;
+}
+
+.activeline {
+  border-bottom: 2px solid rgb(23, 141, 23);
+}
+
+.title1 {
+  font-size: 1rem;
+  font-weight: 500;
+  color: rgb(73, 73, 73);
+}
+
+.title2 {
+  font-size: 0.75rem;
+  font-weight: normal;
+  color: rgb(30, 33, 243);
+}
+
+.title3 {
+  font-size: 0.75rem;
+  font-weight: normal;
+  color: rgb(121, 120, 120);
+}
+
+.title4 {
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: rgb(121, 120, 120);
+}
+
+.title5 {
+  font-size: 0.70rem;
+  font-weight: bold;
+  color: rgb(121, 120, 120);
+  line-height: 1.2;
+}
+
+.bg-cuslight {
+  background-color: #fafafa ;
+}
+
+.text-1 {
+  color: #808080;
+}
+
+.last-rigth {
+  text-align: justify;
+  text-align-last: right;
+}
+
+.circle {
+  border-radius: 2rem !important;
+}
+
+.line {
+  width: 100%;
+  border-bottom: 1px solid rgb(235, 235, 235);
+}
+
+.fa-c1x {
+  font-size: 1.70rem;
+}
+
+.nav-pills .nav-link {
+  border-radius: 0;
+}
+
+.hr-h {
+  border-left: 1px solid #c9c9c9;
+  line-height: 100%;
+}
+
+a:hover {
+  color: unset;
+}

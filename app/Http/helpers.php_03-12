@@ -1,0 +1,2165 @@
+<?php  $_taskslist = array();
+/**
+ * Contains the most low-level helpers methods in Kohana:
+ *
+ * - Environment initialization
+ * - Locating files within the cascading filesystem
+ * - Auto-loading and transparent extension of classes
+ * - Variable and path debugging
+ *
+ * @package    Laravel
+ * @category   Base
+ * @author     Selvam Ravichandran@nextbrain
+ * @copyright  Copyright © Taylor Otwell
+ * @license    https://laravel.com/license
+ */
+
+	/** get current Language **/
+	function getCurrentLang()
+	{
+		$currentlanguages = DB::table('languages')->where('status', 1)->where('language_code',App::getLocale())->get();
+		$current_language_id='';
+		if(count($currentlanguages)>0)
+		{
+			$current_language_id = $currentlanguages[0]->id;
+		}
+		return $current_language_id;
+	}
+	/** get current Language **/
+	function getAdminCurrentLang()
+	{
+		/** $currentlanguages = DB::table('languages')->where('status', 1)->where('language_code',App::getLocale())->get();
+		$current_language_id='';
+		if(count($currentlanguages)>0){
+			$current_language_id = $currentlanguages[0]->id;
+		}
+		return $current_language_id;
+		$current_language_id=1;
+		if(App::getLocale()=='en'){
+			$current_language_id = 1; 
+		}
+		if(App::getLocale()=='ar'){
+			$current_language_id = 2; 
+		}*/
+		return 1;
+	}
+	//Get balance details for commision and amount
+	function getBalanceData($user_id,$type=0)
+	{
+		if($type==1){ //Vendor
+			$vdata = DB::table('vendors')->select('current_balance')->where('id', $user_id)->get();
+			$data = array('vendor_balance' => $vdata[0]->current_balance,'admin_balance'=>0 );
+		} else{
+			$vdata = DB::table('vendors')->sum('current_balance');
+			$adata = DB::table('users')->select('current_balance')->where('id', 1)->get();
+			$data = array('vendor_balance' => $vdata,'admin_balance'=>$adata[0]->current_balance);
+		}
+		return $data;
+	}
+    function getNotificationsList($user_id)
+    {
+    	$notifications = DB::table('notifications')
+							->select('notifications.id','notifications.order_id','notifications.message','notifications.created_date','notifications.read_status','users.name','users.image')
+							->leftJoin('users','users.id','=','notifications.customer_id')
+							->where('read_status', 0);
+		if($user_id!=1)
+		{
+			$notifications = $notifications->where('vendor_id', $user_id);
+		}
+		$notifications = $notifications->orderBy('created_date', 'desc')->get();
+		return $notifications;
+    }
+    /** get country list **/
+	function getCountryLists()
+	{
+		
+		$country_query = '"countries_infos"."language_id" = (case when (select count(*) as totalcount from countries_infos where countries_infos.language_id = '.getCurrentLang().' and countries.id = countries_infos.id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$countries = DB::table('countries')
+			->select('countries.id','countries_infos.country_name')
+			->leftJoin('countries_infos','countries_infos.id','=','countries.id')
+			->whereRaw($country_query)
+			->where('country_status', 1)
+			->orderBy('country_name', 'asc')
+			->get();
+		$country_list=array();
+		if(count($countries)>0){
+			$country_list = $countries;
+		}
+		return $country_list; 
+	}
+	
+	/** get category list **/
+	function getCategoryLists($category_type)
+	{
+		//Get the categories data
+		$category_query = '"categories_infos"."language_id" = (case when (select count(*) as totalcount from categories_infos where categories_infos.language_id = '.getCurrentLang().' and categories.id = categories_infos.category_id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$categories     = DB::table('categories')
+							->select('categories.id','categories_infos.category_name','categories.url_key')
+							->leftJoin('categories_infos','categories_infos.category_id','=','categories.id')
+							->whereRaw($category_query)
+							->where('category_status',  1)
+							->where('parent_id',  0) //getting parent categories only
+							->where('category_type',$category_type)
+							->orderBy('categories.sort_order', 'asc')
+							->get();
+		$categories_list = array();
+		if(count($categories)>0)
+		{
+			$categories_list = $categories;
+		}
+		return $categories_list;
+	}
+	
+	function getMainCategoryLists($category_id)
+	{
+		$categories_list=array();
+		if($category_id !="")
+		{
+			//Get the categories data
+			$category_query = '"categories_infos"."language_id" = (case when (select count(*) as totalcount from categories_infos where categories_infos.language_id = '.getCurrentLang().' and categories.id = categories_infos.category_id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+			$categories=DB::table('categories')
+				->select('categories.id','categories_infos.category_name','categories.url_key')
+				->leftJoin('categories_infos','categories_infos.category_id','=','categories.id')
+				->whereRaw($category_query)
+				->where('category_status',  1)
+				->where('id','<>',$category_id)
+				->where('parent_id', $category_id) //getting parent categories only
+				->orderBy('categories_infos.category_name', 'asc')
+				->get();
+				//print_r($categories);exit;
+			if(count($categories)>0)
+			{
+				$categories_list = $categories;
+			}
+		}
+		return $categories_list;
+	}
+	
+	
+	
+	/** get category details by category id**/
+	function getCategoryListsById($category_id)
+	{
+		//Get the categories data
+		$category_query = '"categories_infos"."language_id" = (case when (select count(category_id) as totalcount from categories_infos where categories_infos.language_id = '.getCurrentLang().' and categories.id = categories_infos.category_id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$categories = DB::table('categories')
+						->select('categories.id','categories_infos.category_name','categories.url_key')
+						->leftJoin('categories_infos','categories_infos.category_id','=','categories.id')
+						->whereRaw($category_query)
+						->where('categories.id',$category_id)
+						->first();
+		$categories_list = array();
+		if(count($categories)>0)
+		{
+			$categories_list = $categories;
+		}
+		return $categories_list;
+	}
+	/** get category list **/
+	function getSubCategoryLists($category_type,$parent_id)
+	{
+		//echo $parent_id;exit;
+		//Get the categories data
+		$category_query = '"categories_infos"."language_id" = (case when (select count(*) as totalcount from categories_infos where categories_infos.language_id = '.getCurrentLang().' and categories.id = categories_infos.category_id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$categories=DB::table('categories')
+			->select('categories.id','categories_infos.category_name')
+			->leftJoin('categories_infos','categories_infos.category_id','=','categories.id')
+			->whereRaw($category_query)
+			->where('category_status',  1)
+			->where('parent_id',  $parent_id) //getting parent categories only
+			->where('category_type',$category_type)
+			->orderBy('category_name', 'asc')
+			->get();
+		$categories_list=array();
+		if(count($categories)>0){
+			$categories_list = $categories;
+		}
+		return $categories_list;
+	}
+	
+	/** get city list **/
+	function getCityList($country_id)
+	{
+		//Get the cities data
+		$city_query = '"cities_infos"."language_id" = (case when (select count(*) as totalcount from cities_infos where cities_infos.language_id = '.getCurrentLang().' and cities.id = cities_infos.id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$cities=DB::table('cities')
+			->select('cities.id','cities_infos.city_name')
+			->leftJoin('cities_infos','cities_infos.id','=','cities.id')
+			->leftJoin('countries','countries.id','=','cities.country_id')
+			->whereRaw($city_query)
+			->where('active_status', 'A')
+			->where('default_status', 1)
+			->where('countries.id', $country_id)
+			->orderBy('city_name', 'asc')
+			->get();
+		$cities_list=array();
+		if(count($cities)>0){
+			$cities_list = $cities;
+		}
+		return $cities_list;
+	}
+	
+	/** get Location list **/
+	function getLocationList($country_id,$city_id)
+	{
+		//Get the location areas data
+		$locations_query = '"zones_infos"."language_id" = (case when (select count(*) as totalcount from zones_infos where zones_infos.language_id = '.getCurrentLang().' and zones.id = zones_infos.zone_id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$locations=DB::table('zones')
+			->select('zones.id','zones_infos.zone_name')
+			->leftJoin('zones_infos','zones_infos.zone_id','=','zones.id')
+			->leftJoin('countries','countries.id','=','zones.country_id')
+			->leftJoin('cities','cities.id','=','zones.city_id')
+			->whereRaw($locations_query)
+			->where('zones_status',  1)
+			->where('countries.id', $country_id)
+			->where('cities.id', $city_id)
+			->orderBy('zone_name', 'asc')
+			->get();
+		$locations_list=array();
+		if(count($locations)>0){
+			$locations_list = $locations;
+		}
+		return $locations_list;
+	}
+	
+	/** get language list **/
+	function getLanguageList()
+	{
+		$languages = DB::table('languages')->where('status', 1)->orderby("languages.id","asc")->get();
+		$languages_list = array();
+		if(count($languages)>0)
+		{
+			$languages_list = $languages;
+		}
+		return $languages_list;
+	}
+	
+	/** get currency list **/
+	function getCurrencyList()
+	{
+		$currencies = DB::table('currencies')
+						->select('currencies.*')
+						->where("currencies.active_status","=","A")
+						->where("currencies.default_status","=",1)
+						->orderBy('id', 'asc')
+						->get();
+		$currencies_list = array();
+		if(count($currencies)>0)
+		{
+			$currencies_list = $currencies;
+		}
+		return $currencies_list;
+	}
+	/** get weight class list **/
+	function getWeightClass()
+	{
+		$query = '"weight_classes_infos"."lang_id" = (case when (select count(*) as totalcount from weight_classes_infos where weight_classes_infos.lang_id = '.getCurrentLang().' and weight_classes.id = weight_classes_infos.id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$weight_classes = DB::table('weight_classes')
+							->select('weight_classes.*','weight_classes_infos.*')
+							->leftJoin('weight_classes_infos','weight_classes_infos.id','=','weight_classes.id')
+							->where('active_status','=',1)
+							->whereRaw($query)
+							->orderBy('title', 'asc')
+							->get();  
+		$weight_class_list=array();
+		if(count($weight_classes)>0)
+		{
+			$weight_class_list = $weight_classes;
+		}
+		return $weight_class_list;
+	}
+	
+	/** get generl settings configuration **/
+	function getAppConfig()
+	{
+		$defaultconfigs = DB::table('settings')->select('settings.*')->get();
+		$config_items=array();
+		if(count($defaultconfigs)>0)
+		{
+			$config_items = $defaultconfigs[0];
+		}
+		return $config_items;
+	}
+	
+	/** get social media settings configuration **/
+	function getAppSocialConfig()
+	{
+		$defaultconfigs=DB::table('socialmediasettings')->select('socialmediasettings.*')->get();
+		$config_items=array();
+		if(count($defaultconfigs)>0)
+		{
+			$config_items = $defaultconfigs[0];
+		}
+		return $config_items;
+	}
+	
+	/** get email settings configuration **/
+	function getAppConfigEmail()
+	{
+		$defaultconfigs = DB::table('emailsettings')->select('emailsettings.*')->get();
+		$config_items   = array();
+		if(count($defaultconfigs)>0)
+		{
+			$config_items = $defaultconfigs[0];
+		}
+		return $config_items;
+	}
+	
+	/** get current language code **/
+	function getCurrentLangCode()
+    {
+		$currentlanguagecodes = DB::table('languages')->where('status', 1)->where('id',getAppConfig()->default_language)->get();
+		$current_language_code='';
+		if(count($currentlanguagecodes)>0)
+		{
+			$current_language_code = $currentlanguagecodes[0]->language_code;
+		}
+		return $current_language_code;
+    }
+   
+   /** get category types **/
+   function getCategoryTypes()
+   {
+		$types=array(1 => 'Product', 2 =>'Vendor', 3 => 'Blog', 4 => 'Faq', 5 => 'Coupon');
+		return $types;
+   }
+   
+    /** get image resize  settings **/
+    
+   function getImageResize($param='')
+   {
+		if(!$param)
+		{
+			return false;
+		}
+		$settings=DB::table('imageresizesettings')->select('*')->get();
+		$image_items=array();
+		if(count($settings)>0)
+		{
+			foreach($settings as $key =>$value)
+			{
+				switch($param)
+				{
+					case 'LOGO':
+						if($value->type==1)
+						{
+							$image_items['WIDTH'] = $value->list_width;
+							$image_items['HEIGHT'] = $value->list_height;
+						}
+					break;
+					case 'FAVICON':
+						if($value->type==1)
+						{
+							$image_items['WIDTH'] = $value->detail_width;
+							$image_items['HEIGHT'] = $value->detail_height;
+						}
+					break;
+					case 'CATEGORY':
+						if($value->type==1)
+						{
+							$image_items['WIDTH'] = $value->thumb_width;
+							$image_items['HEIGHT'] = $value->thumb_height;
+						}
+					break;
+					case 'STORE':
+						if($value->type==2)
+						{
+							$image_items['LIST_WIDTH'] = $value->list_width;
+							$image_items['LIST_HEIGHT'] = $value->list_height;
+							$image_items['DETAIL_WIDTH'] = $value->detail_width;
+							$image_items['DETAIL_HEIGHT'] = $value->detail_height;
+							$image_items['THUMB_WIDTH'] = $value->thumb_width;
+							$image_items['THUMB_HEIGHT'] = $value->thumb_height;
+						}
+					break;
+					case 'PRODUCT':
+						if($value->type==3)
+						{
+							$image_items['LIST_WIDTH'] = $value->list_width;
+							$image_items['LIST_HEIGHT'] = $value->list_height;
+							$image_items['DETAIL_WIDTH'] = $value->detail_width;
+							$image_items['DETAIL_HEIGHT'] = $value->detail_height;
+							$image_items['THUMB_WIDTH'] = $value->thumb_width;
+							$image_items['THUMB_HEIGHT'] = $value->thumb_height;
+						}
+					break;
+					case 'BANNER':
+						if($value->type==4)
+						{
+							$image_items['LIST_WIDTH'] = $value->list_width;
+							$image_items['LIST_HEIGHT'] = $value->list_height;
+						}
+					break;
+					case 'VENDOR':
+						if($value->type==5)
+						{
+							$image_items['LIST_WIDTH'] = $value->list_width;
+							$image_items['LIST_HEIGHT'] = $value->list_height;
+							$image_items['DETAIL_WIDTH'] = $value->detail_width;
+							$image_items['DETAIL_HEIGHT'] = $value->detail_height;
+							$image_items['THUMB_WIDTH'] = $value->thumb_width;
+							$image_items['THUMB_HEIGHT'] = $value->thumb_height;
+						}
+					break;
+				}
+			}
+		}
+		return $image_items;
+   }
+   
+    /** Add user activity log info **/
+    
+	function userlog($message,$userid = '',$activity_type='',$severity = 1,$device='')
+	{ 
+		return addActivity($message,$activity_type,$severity,$userid,'',$device);
+	}
+   
+	function addActivity($message,$activity_type='',$severity = 1,$userid = '',$ip='',$device='')
+	{ 
+		
+		$date = date("Y-m-d H:i:s");
+		if(!$userid) {
+			return false;
+		}
+		$ip = $ip ? $ip : Request::ip();
+		//$browser = get_browser(null, true);
+		$browser ='';
+		$device = $device ? $device : isset($browser['browser'])?$browser['browser']:'';
+		$data = array(
+			'message' => $message,
+			'date' => $date,
+			'ip_' => $ip,
+			'device' =>$device,
+			'user_id' => $userid,
+			'activity_type' => $activity_type
+		);
+		try {
+			DB::table('user_activity_log')->insert($data);
+		} catch(Exception $e) {
+			print_r($e); exit;
+		}
+	}
+	
+	 /** Compare old data and new data its return modified data values only - formate array() **/
+	function logcompare($olddata,$newdata,$type=false,$arr=array(),$unset=array())
+    {
+		 if(!$olddata){
+			 $olddata=array();
+		 }
+		$diff=array_diff($olddata,$newdata);
+		if(count($diff)){
+			$final_data=array();
+			foreach($diff as $key => $val){
+				if(isset($newdata[$key])){
+					$final_data[$key][]=$val;
+					$final_data[$key][]=$newdata[$key];
+				}	
+			}
+			$text="";
+			foreach($final_data as $key1=>$data){
+				if(in_array($key1,$unset)){ continue;} 
+				$text .= $key1.' - '.'<b>'.strip_tags($data[0]).'</b>'.' -> '.'<b>'.strip_tags($data[1]).'</b> ';
+			}
+			if($type){	
+				return $diff;
+			}
+			else {	
+				return $text; 	
+			}
+		}
+
+    }
+    
+     /** Its return 3 days ago , 1 minute age this type of result **/
+     
+    function nicetime($date)
+    {
+        if(empty($date)) {
+            return "";
+        }
+        $periods         = array("second", "minute", "hour", "day", "week", "month", "year", "decade");
+        $lengths         = array("60","60","24","7","4.35","12","10");
+
+        $now             = time();
+        $unix_date         = strtotime($date);
+
+        // check validity of date
+        if(empty($unix_date)) {
+            return "Bad date";
+        }
+
+        // is it future date or past date
+        if($now > $unix_date) {
+            $difference     = $now - $unix_date;
+            $tense         = trans('messages.ago');
+
+        } else {
+            $difference     = $unix_date - $now;
+            $tense         = trans('messages.from now');
+        }
+
+        for($j = 0; $difference >= $lengths[$j] && $j < count($lengths)-1; $j++) {
+            $difference /= $lengths[$j];
+        }
+
+        $difference = round($difference);
+
+        if($difference != 1) {
+            $periods[$j].= "s";
+        }
+        return "$difference $periods[$j] {$tense}";
+    }
+    
+         /**
+     * Calculates timezone offset
+     *
+     * @param  string $timezone
+     * @return int offset between timezone and gmt
+     */
+    function calculateOffset($timezone = null)
+    {
+        $result = true;
+        $offset = 0;
+        if (!is_null($timezone)){
+            $oldzone = @date_default_timezone_get();
+            $result = date_default_timezone_set($timezone);
+        }
+
+        if ($result === true) {
+            $offset = gmmktime(0, 0, 0, 1, 2, 1970) - mktime(0, 0, 0, 1, 2, 1970);
+        }
+
+        if (!is_null($timezone)){
+            date_default_timezone_set($oldzone);
+        }
+
+        return $offset;
+    }
+    
+    
+        /**
+     * Forms GMT date
+     *
+     * @param  string $format
+     * @param  int|string $input date in current timezone
+     * @return string
+     */
+    function gmtDate($format = null, $input = null)
+    {
+        if (is_null($format)) {
+            $format = 'Y-m-d H:i:s';
+        }
+
+        $date = $this->gmtTimestamp($input);
+
+        if ($date === false) {
+            return false;
+        }
+        date_default_timezone_set(Config::get('app.timezone'));
+        $result = date($format, $date);
+        return $result;
+    }
+    
+    
+        /**
+     * Forms GMT timestamp
+     *
+     * @param  int|string $input date in current timezone
+     * @return int
+     */
+	function gmtTimestamp($input = null)
+    {
+        if (is_null($input)) {
+            return gmdate('U');
+        } else if (is_numeric($input)) {
+            $result = $input;
+        } else {
+            $result = strtotime($input);
+        }
+
+        if ($result === false) {
+            // strtotime() unable to parse string (it's not a date or has incorrect format)
+            return false;
+        }
+
+        $timestamp = time()+date("Z");
+
+
+        return $timestamp;
+
+    }
+    
+        /**
+     * Get current timezone offset in seconds/minutes/hours
+     *
+     * @param  string $type
+     * @return int
+     */
+	function getGmtOffset($type = 'seconds')
+    {
+        $result = $this->_offset;
+        switch ($type) {
+            case 'seconds':
+            default:
+                break;
+
+            case 'minutes':
+                $result = $result / 60;
+                break;
+
+            case 'hours':
+                $result = $result / 60 / 60;
+                break;
+        }
+        return $result;
+    }
+    
+    function is_validdate($date)
+    {
+		if( DateTime::createFromFormat('Y-m-d', $date) != false || $date != '0000-00-00 00:00:00') {
+			$value = date("Y-m-d H:i:s",strtotime($date)); 
+		} else {
+			$value = '0000-00-00 00:00:00';
+		}
+		return $value;
+	}
+	
+	function timeAgo($timestamp)
+	{
+		$datetime1=new DateTime("now");
+		$datetime2=date_create($timestamp);
+		$diff=date_diff($datetime1, $datetime2);
+		$timemsg='';
+			if($diff->y > 0){
+				$timemsg = $diff->y .' year'. ($diff->y > 1?"s":'');
+			}
+			else if($diff->m > 0){
+				$timemsg = $diff->m . ' month'. ($diff->m > 1?"s":'');
+			}
+			else if($diff->d > 0){
+				$timemsg = $diff->d .' day'. ($diff->d > 1?"s":'');
+			}
+			else if($diff->h > 0){
+				$timemsg = $diff->h .' hour'.($diff->h > 1 ? "s":'');
+			}
+			else if($diff->i > 0){
+				$timemsg = $diff->i .' minute'. ($diff->i > 1?"s":'');
+			}
+			else if($diff->s > 0){
+				$timemsg = $diff->s .' second'. ($diff->s > 1?"s":'');
+			} else {
+				$timemsg = 'a few second';	
+			}
+
+			$timemsg = $timemsg.' ago';
+			return $timemsg;
+	}
+	
+	 /**
+     * Get email  template subject types
+     *
+     * @param  
+     * @return array
+     */
+	function getSubjectType()
+	{
+		return array(
+			'user_assignment' => 'User Assignment',
+			'order_receipt' => 'Order Receipt',
+			'order_pickup' => 'Order Pickup',
+			'delivery_confirmation' => 'Delivery Confirmation',				
+			'payment_receipt' => 'Payment Receipt',
+			'payment_transfer' => 'Payment Transfer',
+			'order_cancellation' => 'Order Cancellation',
+			'goods_return' => 'Goods Return',
+			'requirement_post' => 'Requirement Post',
+			'product_review' => 'Product Review',
+			'people_review' => 'People Review',
+			'place_review' => 'Place Review',
+			'product_service_add_confirmation' => 'Product / Service Add Confirmation',
+			'new_product_service' => 'New Product / Service',
+			'mail' => 'Mail',		
+			'subscription' => 'Subscription',
+			'review_report_abuse'=>'Review Report Abuse',
+			'item_cancellation'=>'Item Cancellation',
+			'return_request'=>'Return Request'
+		);
+	}
+	
+	
+	/**
+     * Get all email template 
+     *
+     * @param  
+     * @return array object
+     */
+	function getTemplates() 
+	{
+		$templates=DB::table('email_templates')
+			 ->select('email_templates.*')
+			->get();
+		return $templates;
+
+	}
+	
+	/**
+     * Get user types
+     *
+     * @param  
+     * @return array 
+     */
+	function getUserTypes()
+	{
+		$types=array(3=>'Website users',2=>'Role User (Moderator)');
+		return $types;
+	}
+   
+	/**
+     * smtp email send
+     *
+     * @param  
+     * @return 
+     */
+   
+    function smtp($from = "",$from_name="",$receiver = array(), $subject = "", $message = array(),$file = "",$attachment = array())
+    {
+		$smtp=getAppConfigEmail()->smtp_enable;
+		if($smtp)
+		{
+			require_once(base_path().'/includes/mail/class.phpmailer.php');
+			$mail = new PHPMailer(TRUE);
+			$mail->IsSMTP();
+			try {
+				$content = _TemplateResponse($message,$file);
+				$mail->Host       = "mail.yourdomain.com";
+				$mail->SMTPDebug  = 2;
+				$mail->SMTPAuth   = TRUE;
+				$mail->SMTPSecure = getAppConfigEmail()->smtp_encryption;
+				$mail->Host       = getAppConfigEmail()->smtp_host_name;
+				$mail->Port       = getAppConfigEmail()->smtp_port;
+				$mail->Username   = getAppConfigEmail()->smtp_username;
+				$mail->Password   = getAppConfigEmail()->smtp_password;
+				$mail->AddReplyTo($from);
+				//$this->setReceivers($receiver)->setSubject($subject);
+				if(is_array($receiver)) 
+				{
+					call_user_func_array(array($mail, "addAddress"), $receiver);
+					foreach($receiver as $f)
+					{
+						$mail->addAddress($f);
+					}
+				}
+				else {
+					$mail->addAddress($receiver);
+				}
+				$mail->SetFrom($from,$from_name); 
+				$message = array_merge($message,_TemplateDefaultResponse());
+				$subject = parseTemplate($subject,$message);
+				$mail->Subject = $subject;
+				$mail->MsgHTML($content);
+				if(!empty($attachment))
+				{
+					foreach($attachment as $f)
+					{
+						$mail->AddAttachment($f);
+					}
+				} 
+				//$this->setMessage($content);
+				//App::dispatchEvent('Mail_Send_Before',array('phpmailer' => $mail, 'email' => $this));
+				//if(!$this->getQueue())
+				$mail->Send();
+			}
+			catch(phpmailerException $e)
+			{
+				echo $e->errorMessage();exit;
+			}
+			catch (Exception $e)
+			{
+				echo $e->getMessage();exit;
+			}
+			return;
+		}
+		else{
+			try { 
+				if(count($attachment))
+				{
+					$content = _TemplateResponse($message,$file);
+					$message = array_merge($message,_TemplateDefaultResponse());
+					$subject = parseTemplate($subject,$message);
+					$fileatt = $attachment[0]; // Path to the file
+
+					$filename = basename($fileatt);
+					$file_size = filesize($fileatt);
+					$content1 = chunk_split(base64_encode(file_get_contents($fileatt))); 
+					$uid = md5(uniqid(time()));
+					$ecmessage = $content;
+					$header = "From: ".$from_name." <".$from.">\n";
+					$header .= "MIME-Version: 1.0\n";
+					$header .= "Content-Type: multipart/mixed; boundary=\"".$uid."\"\n\n";
+					$emessage= "--".$uid."\n";
+					$emessage.= "Content-type:text/html; charset=iso-8859-1\n";
+					$emessage.= "Content-Transfer-Encoding: 7bit\n\n";
+					$emessage .= $ecmessage."\n\n";
+					$emessage.= "--".$uid."\n";
+					$emessage .= "Content-Type: application/octet-stream; name=\"".$filename."\"\n"; // use different content types here
+					$emessage .= "Content-Transfer-Encoding: base64\n";
+					$emessage .= "Content-Disposition: attachment; filename=\"".$filename."\"\n\n";
+					$emessage .= $content1."\n\n";
+					$emessage .= "--".$uid."--";
+					if(is_array($receiver))
+					{
+						foreach($receiver as $f)
+						{
+							//mail($f,$subject,$content,$headers);
+							@mail($f, $subject, $emessage, $header);
+						}
+					}
+					else {
+						//mail($receiver,$subject,$content,$headers);
+						@mail($receiver, $subject, $emessage, $header);
+					}
+				}
+				else { 
+					$content = _TemplateResponse($message,$file);
+					$message = array_merge($message,_TemplateDefaultResponse());
+					$subject = parseTemplate($subject,$message);
+					$headers  = 'MIME-Version: 1.0' . "\r\n";
+					$headers .= 'Content-type: text/html; charset=iso-8859-1' . "\r\n";
+					$headers .= 'From: <'.$from.'>' . "\r\n";
+					if(is_array($receiver)) 
+					{
+						foreach($receiver as $f)
+						{
+							@mail($f,$subject,$content,$headers);
+						}
+					}
+					else {
+						@mail($receiver,$subject,$content,$headers);
+					}
+			    }
+
+				
+			}
+			catch (Exception $e) {
+				
+			   print_r($e); exit;
+			
+			}
+			return;
+		}	  
+    }
+    
+    /**
+     * filter blackword from email content
+     *
+     * @param  
+     * @return 
+     */
+    function _TemplateResponse($message=array(),$file)
+    { 
+		
+		$message=array_merge($message,_TemplateDefaultResponse()); 
+		/*if($file instanceof Model_Core_Email_Template) { */
+			$mail_content = $file[0]->content;
+		/* } */ 
+		/* else {
+			$lang=App::getConfig('LOCALE'); 
+			$lang=explode("-",$lang);   
+			$lang=isset($lang[0])?$lang[0]:'en';
+			$path=Kohana::find_file('i18n', $lang.'/email/'.$file,'html');
+			if(isset($path[0]) && !file_exists($path[0])){
+				throw new Kohana_Exception(__('Invalid Mail Template'));
+				return $this;
+			}
+			$mail_content = (string) file_get_contents($path[0]);
+		}
+		*/ 
+		$mail_content = filter($mail_content,$message);
+		return $mail_content;
+		
+	}
+	
+	/**
+     * Default Variables values set here
+     *
+     * @param  
+     * @return 
+     */
+	/** Default Variables**/
+	function _TemplateDefaultResponse()
+    {
+		$default = array('default' => array('SITE_NAME' => getAppConfig()->site_name,
+		"STOREADMIN_LOGO" => url('/assets/front/'.Session::get("general")->theme.'/images/logo/159_81/'.getAppConfig()->logo),
+		"ADMIN_LOGO" => url('/assets/front/'.Session::get("general")->theme.'/images/logo/159_81/'.getAppConfig()->logo),
+		"FRONT_LOGO" => url('/assets/front/'.Session::get("general")->theme.'/images/logo/159_81/'.getAppConfig()->logo),
+		"CONTACT_EMAIL" => getAppConfigEmail()->contact_mail,
+		"SUPPORT_EMAIL" => getAppConfigEmail()->support_mail,
+		"SITE_URL"=>url('/'),
+		"SITE_ASSETS_URL" => url('/assets/front/'.Session::get("general")->theme.'/images/'),
+		"SITE_TWITTER_PAGE" => 'http://www.twitter.com',
+		'SITE_FACEBOOK_PAGE' => 'http://www.facebook.com/'
+		)); 
+		return $default;
+	}
+	
+	/** filter Content  removeBlackList**/
+	
+	function filter($value,$templateVariables = array())
+    {
+		$CONSTRUCTION_PATTERN = '/{{([a-z]{0,10})(.*?)}}/si';
+		$templateVariables = array_merge($templateVariables,_TemplateDefaultResponse());
+		if(preg_match_all($CONSTRUCTION_PATTERN, $value, $constructions, PREG_SET_ORDER)) { 			
+            foreach($constructions as $index => $construction) {
+                
+                $replacedValue = ''; 
+				$callback = array($this, $construction[1].'Directive');
+                if(!is_callable($callback)) {
+                    continue;
+                }
+                try { 
+                    $replacedValue = call_user_func($callback, $construction);
+                } catch (Exception $e) {
+                    throw $e;
+                }
+                
+                $value = str_replace($construction[0], $replacedValue, $value); 
+            }
+        }
+ 
+		$values = parseTemplatereplace($value,$templateVariables);
+		removeBlackList($value);
+		return $values;
+	}
+	
+	function parseTemplate($content = '', $templateVariables = array())
+	{ 
+		preg_match_all('/\${(.*?)}/',$content,$matches);
+		$matchings = $matches[1];
+		$replaceset = array();
+		foreach($matchings as $match) {
+			$data = explode(".",$match);
+			if(!isset($templateVariables[$data[0]])) {
+				continue;
+			} 
+			$object = json_decode(json_encode($templateVariables[$data[0]]), FALSE);
+			if(is_object($object)) {
+				$replaceset['${'.$match.'}'] = $object->$data[1];
+			}
+			else if(is_string($templateVariables[$data[0]])) {
+				$replaceset['${'.$match.'}'] = $templateVariables[$data[0]];
+			} 
+		} 
+		$con = str_replace(array_keys($replaceset),array_values($replaceset),$content);
+		return $con;
+	}
+	
+	/** replace the variable to value  **/
+	function parseTemplatereplace(&$content = '', $templateVariables = array())
+	{ 
+		preg_match_all('/\${(.*?)}/',$content,$matches);
+		$matchings = $matches[1];
+		$replaceset = array();
+		foreach($matchings as $match) {
+			$data = explode(".",$match);
+			if(!isset($templateVariables[$data[0]])) {
+				continue;
+			} 
+			$object = json_decode(json_encode($templateVariables[$data[0]]), FALSE);
+			if(is_object($object)) {
+				$replaceset['${'.$match.'}'] = $object->$data[1];
+			}
+			else if(is_string($templateVariables[$data[0]])) {
+				$replaceset['${'.$match.'}'] = $templateVariables[$data[0]];
+			} 
+		} 
+		$content = str_replace(array_keys($replaceset),array_values($replaceset),$content);
+		return $content;
+	}
+	
+	
+	/** Filter Black Words - varible passing only not open string **/
+	function removeBlackList(&$text = '')
+    {
+        $blacklistwords = getAppConfig()->blocklist_words;
+        $blacklistwords = explode(",",$blacklistwords);
+        foreach($blacklistwords as $bl) {
+            $text = preg_replace('/\b('.$bl.')(s?)\b/u', '****', $text, 1); 
+        } 
+        return $text ;
+    }
+	/*
+	 * timing schedule for doctors purpose
+	*/
+	function getDaysWeekArray()
+	{
+		return array('Monday' => 1, 'Tuesday' => 2, 'Wednesday' => 3, 'Thursday' => 4, 'Friday' => 5, 'Saturday' => 6, 'Sunday' => 7);
+	}
+	
+	/*
+	 * Get data here for outlet with days
+	*/
+	function getOpenTimings($v_id,$day_week)
+	{
+		$time_data = DB::table('opening_timings')
+			->where("vendor_id",$v_id)
+			->where("day_week",$day_week)
+			->orderBy('id', 'asc')
+			->get();
+		$time_list=array();
+		if(count($time_data)>0){
+			$time_list = $time_data;
+		}
+		return $time_list;
+	}
+	
+	/*
+	 * Get data here for outlet with days
+	*/
+	function getDeliveryTimings($v_id,$day_week)
+	{
+		$time_data = DB::table('delivery_timings')
+			->where("vendor_id",$v_id)
+			->where("day_week",$day_week)
+			->orderBy('id', 'asc')
+			->get();
+		$time_list=array();
+		if(count($time_data)>0){
+			$time_list = $time_data;
+		}
+		return $time_list;
+	}
+	/** get vendors list **/
+	function getVendorLists()
+	{
+		//Get the vendors data
+		$query = '"vendors_infos"."lang_id" = (case when (select count(*) as totalcount from vendors_infos where vendors_infos.lang_id = '.getCurrentLang().' and vendors.id = vendors_infos.id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$data=DB::table('vendors')
+			->leftJoin('vendors_infos','vendors_infos.id','=','vendors.id')
+			->select('vendors.id','vendors_infos.vendor_name')
+			->whereRaw($query)
+			->where('active_status',  1)
+			->orderBy('vendor_name', 'asc')
+			->get();
+		$data_list=array();
+		if(count($data)>0){
+			$data_list = $data;
+		}
+		return $data_list;
+	}
+	/* To coupon outlet list */
+	function getOutletLists($coupon_id)
+	{
+		//print_r($coupon_id);die;
+		$data = DB::table('coupon_outlet')
+				->select('outlet_id')
+				->where('coupon_id',  $coupon_id)
+				->get();
+		$data_list = array();
+		if(count($data)>0){
+			$data_list = $data;
+		}
+		return $data_list;
+	}
+
+	/** get vendors categories **/
+	function gethead_categories()
+	{
+		$data_list = array();
+		$query = '"categories_infos"."language_id" = (case when (select count(*) as totalcount from categories_infos where categories_infos.language_id = '.getCurrentLang().' and categories.id = categories_infos.category_id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$data=DB::table('categories')
+				->select('categories.id','categories_infos.category_name')
+				->leftJoin('categories_infos','categories_infos.category_id','=','categories.id')
+				->whereRaw($query)
+				->where('category_status',  1)
+				->where('category_type',2)
+				->orderBy('category_name', 'asc')
+				->get();
+		if(count($data)>0)
+		{
+			$data_list = $data;
+		}
+		return $data_list;
+	}
+	
+	
+	/** get vendors list **/
+	function getStoreVendorLists($vendor_id)
+	{
+		//Get the vendors data
+		$query = '"vendors_infos"."lang_id" = (case when (select count(*) as totalcount from vendors_infos where vendors_infos.lang_id = '.getCurrentLang().' and vendors.id = vendors_infos.id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$data=DB::table('vendors')
+			->leftJoin('vendors_infos','vendors_infos.id','=','vendors.id')
+			->select('vendors.id','vendors_infos.vendor_name')
+			->whereRaw($query)
+			->where('vendors.id', $vendor_id)
+			->where('active_status',  1)
+			->orderBy('vendor_name', 'asc')
+			->get();
+		$data_list=array();
+		if(count($data)>0){
+			$data_list = $data;
+		}
+		return $data_list;
+	}
+	
+	/* Get weight classes data here */
+	function getVendorCategoryList($id)
+	{
+		$vdata = DB::table('vendors')->select('category_ids')->where('id',$id)->get();
+		$data_list = array();
+		if(count($vdata)){
+			$cids = explode(',',$vdata[0]->category_ids);
+			//Get the categories data
+			$query = '"categories_infos"."language_id" = (case when (select count(*) as totalcount from categories_infos where categories_infos.language_id = '.getCurrentLang().' and categories.id = categories_infos.category_id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+			$data=DB::table('categories')
+					->select('categories.id','categories_infos.category_name','categories.url_key')
+					->leftJoin('categories_infos','categories_infos.category_id','=','categories.id')
+					->whereRaw($query)
+					->where('category_status',  1)
+					->where('category_type',2)
+					->whereIn('categories.id', $cids)
+					->orderBy('category_name', 'asc')
+					->get();
+			if(count($data)>0){
+				$data_list = $data;
+			}
+			return $data_list;
+		} else {
+			return $data_list;
+		}
+	}
+	
+	function getVendorsubCategoryLists($id)
+	{
+		$vdata = DB::table('vendors')->select('category_ids')->where('id',$id)->get();
+		//print_r($vdata);die;
+		$data_list = array();
+		if(count($vdata))
+		{
+			$cids = explode(',',$vdata[0]->category_ids);
+			//Get the categories data
+			$query = '"categories_infos"."language_id" = (case when (select count(*) as totalcount from categories_infos where categories_infos.language_id = '.getCurrentLang().' and categories.id = categories_infos.category_id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+			$data = DB::table('categories')
+					->select('categories.id','categories_infos.category_name','categories.url_key')
+					->join('categories_infos','categories_infos.category_id','=','categories.id')
+					->whereRaw($query)
+					->where('category_status','=',1)
+					->where('category_type','=',1)
+					->whereIn('categories.parent_id', $cids)
+					->orderBy('category_name', 'asc')
+					->get();
+			if(count($data)>0)
+			{
+				$data_list = $data;
+			}
+			return $data_list;
+		} 
+		else
+		{
+			return $data_list;
+		}
+	}
+	
+	
+	function getProduct_category_list($store_id)
+	{
+		//echo $store_id;exit;
+			$data_list = array();
+			//Get the categories data
+			$query = '"categories_infos"."language_id" = (case when (select count(*) as totalcount from categories_infos where categories_infos.language_id = '.getCurrentLang().' and categories.id = categories_infos.category_id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+			$data = DB::table('categories')
+					->select('categories.id','categories.url_key','categories_infos.category_name')
+					->rightJoin('products','products.category_id','=','categories.id')
+					->join('categories_infos','categories_infos.category_id','=','categories.id')
+					->whereRaw($query)
+					->where('outlet_id','=',$store_id)
+					->where('category_status','=',1)
+					->where('products.active_status','=',1)
+					->where('category_type','=',1)
+					->groupBy('categories.id',"categories_infos.category_name")
+					->orderBy('category_name', 'asc')
+					->get();
+			if(count($data)>0)
+			{
+				$data_list = $data;
+			}
+			return $data_list;
+	}
+	
+	/*SELECT cat.id,p.id,ci.category_name
+		FROM categories cat
+		RIGHT JOIN products p ON cat.id = p.sub_category_id
+		left join categories_infos ci on ci.category_id = cat.id
+		where ci.language_id = 1
+	*/
+	
+	/* To get all outlet list based on vendor */
+	function getOutletList($c_id)
+	{
+		$query = '"outlet_infos"."language_id" = (case when (select count(language_id) as totalcount from outlet_infos where outlet_infos.language_id = '.getCurrentLang().' and outlets.id = outlet_infos.id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$data = DB::table('outlets')
+					->select('outlets.id','outlet_infos.outlet_name')
+					->join('outlet_infos','outlet_infos.id','=','outlets.id')
+					->whereRaw($query)
+					->where('vendor_id',$c_id)
+					->get();
+		$data_list = array();
+		if(count($data)>0)
+		{
+			$data_list = $data;
+		}
+		return $data_list;
+	}
+	
+    /* To get all customers list */
+    function all_customers_list($group_id = "")
+    {
+		$customers = DB::table('users')
+						->select('id','email','social_title','first_name','last_name')
+						->where("user_type",3)->where("status",1);
+		if ($group_id != "")
+		{
+			$customers = $customers->whereIn('user_group',$group_id);
+		}
+		$customers = $customers->orderBy('id', 'desc')->get();
+		$customers_list = array();
+		if(count($customers)>0)
+		{
+			$customers_list = $customers;
+		}
+		return $customers_list;
+	}
+    /* To get all newsletter subscribeers list */
+    function all_newsletter_subscribers_list()
+    {
+		$newsletter_subscribers = DB::table('newsletter_subscribers')
+									->select('id','email')
+									->where("active_status",1)
+									->orderBy('id', 'desc')->get();
+		$newsletter_subscribers_list = array();
+		if(count($newsletter_subscribers)>0)
+		{
+			$newsletter_subscribers_list = $newsletter_subscribers;
+		}
+		return $newsletter_subscribers_list;
+	}
+    /* To get all customers groups list */
+    function all_customers_groups_list()
+    {
+		$customers_groups = DB::table('users_group')
+								->select('group_id','group_name')
+								->where("group_status",1)
+								->orderBy('group_id', 'desc')->get();
+		$customers_group_list = array();
+		if(count($customers_groups)>0)
+		{
+			$customers_group_list = $customers_groups;
+		}
+		return $customers_group_list;
+	}
+
+	/** get generl settings configuration **/
+	function getAdminpaymentemail()
+	{					
+		$defaultconfigs=DB::table('users')
+			 ->select('users.payment_account')
+			 ->where('id', '=', 1)
+			->get();
+		$config_items=array();
+		if(count($defaultconfigs)>0){
+			$config_items = $defaultconfigs[0];
+		}
+		return $config_items;
+	}
+	/** get generl settings configuration **/
+	function getAppPaymentConfig()
+	{					
+		$defaultconfigs=DB::table('payment_gateways')
+			 ->select('payment_gateways.*')
+			 ->where('id', '=', 1)
+			->get();
+		$config_items=array();
+		if(count($defaultconfigs)>0){
+			$config_items = $defaultconfigs[0];
+		}
+		return $config_items;
+	}
+	/** get generl settings configuration **/
+	function getCms()
+	{
+		 
+			$query = '"cms_infos"."language_id" = (case when (select count(*) as totalcount from cms_infos where cms_infos.language_id = '.getCurrentLang().' and cms.id = cms_infos.cms_id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+			$cms=DB::table('cms')
+			 ->select('cms.*','cms_infos.*')
+		    ->leftJoin('cms_infos','cms_infos.cms_id','=','cms.id')
+			->whereRaw($query)
+			->where('cms.cms_status','=',1)
+			->orderBy('cms.id', 'desc')
+			->get();
+			$cms_items=array();
+			if(count($cms)>0){
+				$cms_items = $cms;
+			}
+			return $cms_items;
+			
+	}
+
+		/** get city list **/
+	function getUserGroups()
+	{
+		$groups=DB::table('users_group')
+				 ->select('users_group.*')
+				->orderBy('group_id', 'asc')
+				->get();
+		$groups_list=array();
+		if(count($groups)>0){
+			$groups_list = $groups;
+		}
+		return $groups_list;
+	}
+
+	/** get city list **/
+	function getUserList($user_type)
+	{
+		$users=DB::table('users')
+			->select('email','name','id')
+			->where('active_status', 'A')
+			//->where('status', 1)
+			->where('user_type',"!=",1)
+			->orderBy('email', 'asc')
+			->get();
+			
+		$doctors=DB::table('vendors')
+			->select('email','first_name as name','last_name','id','phone_number','mobile_number')
+			//->where('active_status', 1)
+			->orderBy('email', 'asc')
+			->get();	
+			
+		$user_list=array();
+		if(count($users)>0 && $user_type==1){
+			$user_list = $users;
+			return $user_list;
+		}
+		if(count($doctors)>0 && $user_type==2){
+			$user_list = $doctors;
+			return $user_list;
+		}
+		
+	}
+	/*
+	 * To get the outlet list based on vendor
+	 */
+	function get_outlet_list($vendor_id = "")
+	{
+		$query = '"outlet_infos"."language_id" = (case when (select count(language_id) as totalcount from outlet_infos where outlet_infos.language_id = '.getCurrentLang().' and outlets.id = outlet_infos.id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$outlets = DB::table('outlets')
+					->select('outlets.id','outlet_infos.outlet_name')
+					->join('outlet_infos','outlet_infos.id','=','outlets.id')
+					->whereRaw($query)
+					->where('active_status', 1);
+		if($vendor_id != '')
+		{
+			$outlets = $outlets->where('vendor_id', $vendor_id);
+		}
+		$outlets = $outlets->orderBy('outlet_infos.outlet_name', 'asc')->get();
+		$outlets_list = array();
+		if(count($outlets)>0)
+		{
+			$outlets_list = $outlets;
+		}
+		return $outlets_list;
+	}
+	/*
+	 * To get the product list based on outlet
+	 */
+	function get_product_list($outlet_ids = "")
+	{
+		$query = '"products_infos"."lang_id" = (case when (select count(id) as totalcount from products_infos where products_infos.lang_id = '.getCurrentLang().' and products.id = products_infos.id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		//Get the product data
+		$products = DB::table('products')
+					->select('products.id','products_infos.product_name')
+					->join('products_infos','products_infos.id','=','products.id')
+					->whereRaw($query)
+					->where('products.active_status', '=', 1);
+		if(!empty($outlet_ids))
+		{
+			$products = $products->whereIn('products.outlet_id', $outlet_ids);
+		}
+		$products = $products->orderBy('products_infos.product_name', 'asc')->get();
+		$products_list = array();
+		if(count($products)>0)
+		{
+			$products_list = $products;
+		}
+		return $products_list;
+	}
+
+	/*
+	 * To get the outlet list based on vendor
+	 */
+	function getuserrole($user_id = "")
+	{
+		//Get the outlet data
+		$roles = DB::table('roles_users')
+					->select('user_id','role_id','role_name','tag_bg_color','tag_text_color')
+					->leftJoin('user_roles','user_roles.id','=','roles_users.role_id')
+					->where('active_status', 1)
+					->where('roles_users.user_id', $user_id);
+		$roles = $roles->orderBy('role_name', 'asc')->get();
+		$outlets_list = array();
+		if(count($roles)>0)
+		{
+			$outlets_list = $roles;
+		}
+		return $outlets_list;
+	}
+
+	/*
+	 * To set task list for all modules
+	 */
+	function tasks()
+	{
+		return array(
+			/** roles and users module task **/
+			'permissions' => array(
+				'sort'  => '2',
+				'title' => trans('messages.Permissions'),
+				'children'  => array(
+					'roles' => array(
+						'title' => trans('messages.Roles'),
+						'sort'  => '2',
+						'task_note'  => trans('messages.Managing the roles'),
+						'task_index' => '["system/permission"]',
+						'apiresources'    => array (
+							'permissions' => array(
+								'title'   => trans('messages.Roles'),
+								'description' => 'Managing Roles',
+								'resource'    => array (
+									'GET','POST','PUT','DELETE'
+								)
+							),
+						),
+					),
+					'roles/edit' => array(
+						'title' => trans('messages.Roles Edit'),
+						'sort'  => '3',
+						'task_note'  => trans('messages.Edit,delete the roles and their tasks'),
+						'task_index' => '["system/permission/create", "system/permission/edit", "update_role", "system/rolecreate", "system/permission/delete"]'
+					),
+					'users' => array(
+						'title' => trans('messages.Roles Users'),
+						'sort' => '4',
+						'task_note' => trans('messages.Managing the users'),
+						'task_index' => '["permission/users"]',
+					),
+					'edit' => array(
+						'title' => trans('messages.Roles User Edit'),
+						'sort' => '5',
+						'task_note' => trans('messages.Edit,delete the role users'),
+						'task_index' => '["permission/usercreate", "permission/userstore", "permission/users/edit", "usersupdate", "permission/users/delete"]'
+					),
+				),
+			),
+			/** roles and users module task **/
+			/** vendors and outlets  module task **/
+			'vendors' => array(
+				'sort' => '2',
+				'title' => trans('messages.Vendors'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Vendors'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the vendors'),
+						'task_index' => '["vendors/vendors","vendors/vendor_details"]',
+						'apiresources' => array (
+							'vendors' => array(
+								'title' => trans('messages.Vendors'),
+								'description' => 'Managing Vendors',
+								'resource' => array (
+									'GET','POST','PUT','DELETE'
+								)
+							),
+						),
+					),
+					'vendors/edit' => array(
+						'title' => trans('messages.Vendors Edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Edit,delete the vendors and their tasks'),
+						'task_index' => '["vendors/create_vendor","vendors/edit_vendor","update_vendor","vendor_create ","vendors/delete_vendor"]'
+					),
+				),
+			),
+			'outlets' => array(
+				'sort' => '2',
+				'title' => trans('messages.Outlets'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Outlets'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the Outlets'),
+						'task_index' => '["vendors/outlets","vendors/outlet_details"]',
+						'apiresources' => array (
+							'outlets' => array(
+								'title' => trans('messages.Outlets'),
+								'description' => 'Managing Outlets',
+								'resource' => array (
+									'GET','POST','PUT','DELETE'
+								)
+							),
+						),
+					),
+					'outlets/edit' => array(
+						'title' => trans('messages.Outlets Edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Edit,delete the outlets and their tasks'),
+						'task_index' => '["vendors/create_outlet","vendors/edit_outlet","update_outlet","outlet_create","vendors/delete_outlet"]'
+					),
+				),
+			),
+			'outletsmanagers' => array(
+				'sort' => '2',
+				'title' => trans('messages.Outlets Managers'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Outlets Managers'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the Outlets Managers'),
+						'task_index' => '["vendors/outlet_managers"]',
+					),
+					'outletsmanagers/edit' => array(
+						'title' => trans('messages.Outlets Managers Edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Edit,delete the outlets managers and their tasks'),
+						'task_index' =>	'["vendors/create_outlet_managers","vendors/edit_outlet_manager","admin/managers/update","create_manager","vendors/delete_outlet_managers"]'
+					),
+				),
+			),
+			'products' => array(
+				'sort' => '2',
+				'title' => trans('messages.Products'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Products'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the Products'),
+						'task_index' => '["admin/products","admin/products/product_details"]',
+						'apiresources' => array (
+							'products' => array(
+								'title' => trans('messages.Products'),
+								'description' => 'Managing Products',
+								'resource' => array (
+									'GET','POST','PUT','DELETE'
+								)
+							),
+						),
+					),
+					'products/edit' => array(
+						'title' => trans('messages.Products Edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Edit,delete the products and their tasks'),
+						'task_index' => '["admin/products/create_product","admin/products/edit_product","update_product","product_create","admin/products/delete_product"]'
+					),
+				),
+			),
+			'drivers' => array(
+				'sort' => '2',
+				'title' => trans('messages.Drivers'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Drivers'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the Drivers'),
+						'task_index' => '["admin/drivers","admin/drivers/view"]',
+						'apiresources' => array (
+							'drivers' => array(
+								'title' => trans('messages.Drivers'),
+								'description' => 'Managing Drivers',
+								'resource' => array (
+									'GET','POST','PUT','DELETE'
+								)
+							),
+						),
+					),
+					'drivers/edit' => array(
+						'title' => trans('messages.Drivers Edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Edit,delete the drivers and their tasks'),
+						'task_index' => '["admin/drivers/create","admin/drivers/edit","admin/drivers/update","create_driver","admin/drivers/delete"]'
+					),
+				),
+			),
+			'coupons' => array(
+				'sort' => '2',
+				'title' => trans('messages.Coupons'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Coupons'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the Coupons'),
+						'task_index' => '["admin/coupons","admin/coupons/view"]',
+						'apiresources' => array (
+							'drivers' => array(
+								'title' => trans('messages.Coupons'),
+								'description' => 'Managing Coupons',
+								'resource' => array (
+									'GET','POST','PUT','DELETE'
+								)
+							),
+						),
+					),
+					'coupons/edit' => array(
+						'title' => trans('messages.Coupons Edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Edit,delete the coupons and their tasks'),
+						'task_index' => '["admin/coupons/create","admin/coupons/edit","admin/coupons/update","create_coupon","admin/coupons/delete"]'
+					),
+				),
+			),
+			'subscribers' => array(
+				'sort' => '2',
+				'title' => trans('messages.Subscribers'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Subscribers'),
+						'sort' => '2',
+						'task_note' => trans('messages.Subscribers List'),
+						'task_index' => '["admin/subscribers"]',
+					),
+					'delete' => array(
+						'title' => trans('messages.Subscribers'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the subscribers'),
+						'task_index' => '["admin/subscribers/delete","admin/subscribers/updateStatus"]',
+					),
+				),
+			),
+			'newsletter' => array(
+				'sort' => '2',
+				'title' => trans('messages.Newsletter'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Newsletter'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the newsletter'),
+						'task_index' => '["admin/newsletter","send_newsletter"]',
+					),
+				),
+			),
+			'cms' => array(
+				'sort' => '2',
+				'title' => trans('messages.CMS'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.CMS'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the cms'),
+						'task_index' => '["admin/cms","admin/cms/view"]',
+					),
+					'cms/edit' => array(
+						'title' => trans('messages.Cms Edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Edit,delete the cms and their tasks'),
+						'task_index' => '["admin/cms/create","admin/cms/edit","updatecms","createcms","admin/cms/delete"]'
+					),
+				),
+			),
+			'blog' => array(
+				'sort' => '2',
+				'title' => trans('messages.Blog'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Blog'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the blog'),
+						'task_index' => '["admin/blog"]',
+					),
+					'blog/edit' => array(
+						'title' => trans('messages.Blog Edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Edit,delete the blog and their tasks'),
+						'task_index' => '["admin/blog/create","createblog","admin/blog/edit","updateblog","admin/blog/delete","admin/blog/view"]'
+					),
+				),
+			),
+			/** roles and users module task **/
+			'users' => array(
+				'sort' => '2',
+				'title' => trans('messages.Users'),
+				'children' => array(
+					'users/groups' => array(
+						'title' => trans('messages.Groups'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the groups'),
+						'task_index' => '["admin/users/groups"]',
+					),
+					'groups/edit' => array(
+						'title' => trans('messages.Edit Group'),
+						'sort' => '3',
+						'task_note' => trans('messages.Add,Edit,delete the group and their tasks'),
+						'task_index' => '["admin/groups/create","creategroup","admin/groups/edit","update_group","admin/groups/delete"]'
+					),
+					'users/addresstype' => array(
+						'title' => trans('messages.Address Type'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the address type'),
+						'task_index' => '["admin/users/addresstype"]',
+					),
+					'addresstype/edit' => array(
+						'title' => trans('messages.Edit Address Type'),
+						'sort' => '3',
+						'task_note' => trans('messages.Add,Edit,delete the address type and their tasks'),
+						'task_index' => '["admin/addresstype/create","createaddresstype","admin/addresstype/edit","update_addresstype","admin/addresstype/delete"]'
+					),
+					'list' => array(
+						'title' => trans('messages.Users'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the users'),
+						'task_index' => '["admin/users/index"]',
+						'apiresources' => array (
+							'permissions' => array(
+								'title' => trans('messages.Users'),
+								'description' => 'Managing Users',
+								'resource' => array (
+									'GET','POST','PUT','DELETE'
+								)
+							),
+						),
+					),
+					'users/edit' => array(
+						'title' => trans('messages.Users Edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Edit,delete the users and their tasks'),
+						'task_index' => '["admin/users/create","admin/users/edit","update_users","createuser","admin/users/delete"]'
+					),
+				),
+			),
+			'category' => array(
+				'sort' => '2',
+				'title' => trans('messages.Category'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Category'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the category'),
+						'task_index' => '["admin/category"]',
+					),
+					'category/edit' => array(
+						'title' => trans('messages.Category Edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Add,Edit,delete the category and their tasks'),
+						'task_index' => '["admin/category/create","createcategory","admin/category/edit","updatecategory","admin/category/delete"]'
+					),
+				),
+			),
+			/** email notification **/
+			'notification' => array(
+				'sort' => '2',
+				'title' => trans('messages.Email Notification'),
+				'children' => array(
+					/*'list' => array(
+						'title' => trans('messages.Email Notification Subject'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the notification subjects'),
+						'task_index' => '["admin/template/subjects"]',
+					),
+					'subjects/edit' => array(
+						'title' => trans('messages.Notification subjects edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Add,Edit the notification subjects'),
+						'task_index' => '["admin/subjects/create","admin/subjects/edit","admin/subjects/update","createsubject"]'
+					),*/
+					'templates' => array(
+						'title' => trans('messages.Notification Templates'),
+						'sort' => '4',
+						'task_note' => trans('messages.Managing the notification templates'),
+						'task_index' => '["admin/templates/email"]',
+					),
+					'templates/edit' => array(
+						'title' => trans('messages.Notification templates edit'),
+						'sort' => '5',
+						'task_note' => trans('messages.Add,edit the notification templates'),
+						'task_index' => '["admin/templates/create","createtemplate", "admin/templates/edit","admin/template/update","admin/templates/view","admin/templates/delete"]'
+					),
+				),
+			),
+			'banners' => array(
+				'sort' => '2',
+				'title' => trans('messages.Banners'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Banners'),
+						'sort' => '2',
+						'task_note' => trans('messages.Managing the banners'),
+						'task_index' => '["admin/banners"]',
+					),
+					'banners/edit' => array(
+						'title' => trans('messages.Banners Edit'),
+						'sort' => '3',
+						'task_note' => trans('messages.Add,Edit,delete the banner and their tasks'),
+						'task_index' => '["admin/banner/create", "createbanner", "admin/banner/edit", "admin/banner/update", "admin/banner/ajaxupdate"]'
+					),
+				),
+			),
+			/*'settings' => array(
+				'sort' => '2',
+				'title' => trans('messages.Settings'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Settings'),
+						'sort'  => '2',
+						'task_note'  => trans('messages.Managing the all site settings'),
+						'task_index' => '[admin/settings/general", "admin/settings/store", "admin/settings/local", "admin/settings/email", "admin/settings/socialmedia", "admin/settings/image", "admin/payment/settings", "admin/modules/settings"]',
+					),
+				),
+			),
+			'reports_analytics' => array(
+				'sort' => '2',
+				'title' => trans('messages.Reports & Analytics'),
+				'children' => array(
+					'list' => array(
+						'title' => trans('messages.Reports & Analytics'),
+						'sort'  => '2',
+						'task_note'  => trans('messages.Managing the all reports and analytics'),
+						'task_index' => '[reports/order", "reports/returns", "reports/user", "reports/vendor"]',
+					),
+				),
+			),*/
+			'sales' => array(
+				'sort' => '2',
+				'title' => trans('messages.Sales'),
+				'children' => array(
+					'orders/index' => array(
+						'title' => trans('messages.Orders'),
+						'sort' => '2',
+						'task_note' => trans('messages.Orders List'),
+						'task_index' => '["admin/orders/index"]',
+					),
+					'orders/info' => array(
+						'title' => trans('messages.View Orders'),
+						'sort' => '3',
+						'task_note' => trans('messages.View orders and their tasks'),
+						'task_index' => '["admin/orders/update-status","admin/orders/info","admin/orders/load_history","admin/orders/delete"]'
+					),
+					'orders/return_orders' => array(
+						'title' => trans('messages.Return Orders'),
+						'sort' => '4',
+						'task_note' => trans('messages.Return Orders List'),
+						'task_index' => '["orders/return_orders"]',
+					),
+					'orders/return_orders_view' => array(
+						'title' => trans('messages.View Return Orders'),
+						'sort' => '5',
+						'task_note' => trans('messages.View orders and their tasks'),
+						'task_index' => '["orders/return_orders_view","update_return_order"]'
+					),
+					'orders/fund_requests' => array(
+						'title' => trans('messages.Fund Requests'),
+						'sort' => '6',
+						'task_note' => trans('messages.Fund Requests List'),
+						'task_index' => '["orders/fund_requests"]',
+					),
+					'orders/approve_fund_status' => array(
+						'title' => trans('messages.Approve Fund Requests'),
+						'sort' => '6',
+						'task_index' => '["orders/approve_fund_status"]',
+					),
+				),
+			),
+			'user_notification' => array(
+				'sort' => '2',
+				'title' => trans('messages.Notifications'),
+				'children' => array(
+					'notifications' => array(
+						'title' => trans('messages.Notifications'),
+						'sort'  => '2',
+						'task_note'  => trans('messages.Managing the notifications'),
+						'task_index' => '["admin/notifications", "admin/read_notifications"]',
+					),
+				),
+			),
+			'reviews' => array(
+				'sort' => '2',
+				'title' => trans('messages.Reviews'),
+				'children' => array(
+					'reviews' => array(
+						'title' => trans('messages.Reviews'),
+						'sort'  => '2',
+						'task_note'  => trans('messages.Managing the reviews'),
+						'task_index' => '["admin/reviews"]',
+					),
+					'admin/reviews/view' => array(
+						'title' => trans('messages.View Reviews'),
+						'sort' => '3',
+						'task_note' => trans('messages.View reviews and their tasks'),
+						'task_index' => '["admin/reviews/view","admin/reviews/approve","admin/reviews/delete"]'
+					)
+				),
+			),
+		);
+	}
+
+	/*
+	 * To check the module access 
+	 */
+	function hasTask($task_index, $check_owner = true)
+    {
+        if(Auth::id()==1 && $check_owner)
+        {
+            return true;
+        }
+        else {
+			$access = getAccessTasks();
+			if(in_array($task_index,$access))
+			{
+				return true;
+			}
+		}
+        return false;
+    }
+    
+	/*
+	 * To check the module access 
+	 */
+    function getAccessTasks()
+    {
+		$roletasks  = array();
+		$user_id    = Auth::id();
+		$role_users = DB::table('roles_users')
+						->select('role_id')
+						->where('user_id', "=",$user_id)
+						->get();
+		if(count($role_users))
+		{
+			foreach($role_users as $user)
+			{
+				$rolet = getTasksIndex($user->role_id);
+				if(count($rolet))
+				{
+					foreach($rolet as $tasks)
+					{
+						$roletasks[] = $tasks;
+					}
+				}
+			}
+		}
+		//$diff = array_intersect(array_unique($roletasks),$menulist);
+		$_assTasks = $roletasks;
+		return $_assTasks;
+    }
+
+	/*
+	 * To check the module access 
+	 */
+    function getTasksIndex($role_id)
+    {
+		$db = DB::table('role_tasks')
+				->select('*')
+				->where('role_id','=',$role_id)
+				->get();
+		$tasks = array();
+		foreach($db as $result)
+		{
+			if($result->task_index!="")
+			{
+				$array = json_decode($result->task_index,true);
+				if(is_array($array))
+				{
+					foreach($array as $ar)
+					{
+						$tasks[] = $ar;
+					}
+				}
+				else {
+					$tasks[] = $result->task_index;
+				}
+			}
+		}
+		//$this->_tasksIndex[$role_id] = $tasks;
+		return isset($tasks)? $tasks: array();
+	}
+
+    function getlocation($api)
+    {
+		return $api->getLocation();
+	}
+
+	function getCity($api)
+    {
+		return $api->getCity();
+	}
+
+	function getFeatureSstore($api)
+    {
+		return $api->getFeatureSstore();
+	}
+
+	/** get Location list **/
+	function getFrontLocationList($city_url)
+	{
+		//Get the location areas data
+		$locations_query = '"zones_infos"."language_id" = (case when (select count(*) as totalcount from zones_infos where zones_infos.language_id = '.getCurrentLang().' and zones.id = zones_infos.zone_id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+		$locations=DB::table('zones')
+			->select('zones.id','zones_infos.zone_name','zones.url_index')
+			->leftJoin('zones_infos','zones_infos.zone_id','=','zones.id')
+			->leftJoin('countries','countries.id','=','zones.country_id')
+			->leftJoin('cities','cities.id','=','zones.city_id')
+			->whereRaw($locations_query)
+			->where('zones_status',  1)
+			->where('cities.url_index', $city_url)
+			->orderBy('zone_name', 'asc')
+			->get();
+		$locations_list=array();
+		if(count($locations)>0){
+			$locations_list = $locations;
+		}
+		return $locations_list;
+	}
+
+	function getoffers($api)
+    {
+		return $api->getOffers(); 	
+	}
+
+	/**
+     * Get user types
+     *
+     * @param  
+     * @return array 
+     */
+	function getBannerTypes()
+    {
+		$types=array(1=>'Common',2=>'Store');
+		return $types;
+    }
+
+    /** get current Position **/
+	function getCurrencyPosition()
+	{
+		$currency_side = DB::table('settings')->select('settings.currency_side')->first();
+		return $currency_side;
+	}
+    /** get current Language **/
+	function getCurrency()
+	{
+		$currentcurrency = DB::table('currencies')->select('currencies.currency_symbol')->join('settings','settings.default_currency','=','currencies.id')->where('active_status', 'A')->first();
+		$current_currency_code = '';
+		if(count($currentcurrency)>0)
+		{
+			if($currentcurrency->currency_symbol)
+			{
+				$current_currency_code = $currentcurrency->currency_symbol;
+			}
+		}
+		return $current_currency_code;
+	}
+	
+	function getCurrencycode()
+	{
+		$currentcurrency = DB::table('currencies')->where('active_status', 'A')->where('id',Session::get('general')->default_currency)->get();
+		$current_currency_code = '';
+		if(count($currentcurrency)>0)
+		{
+			$current_currency_code = $currentcurrency[0]->currency_code;
+		}
+		return $current_currency_code;
+	}
+	
+	 function get_coperativess()
+    {
+		$cooprative_list[""] = trans("messages.Select cooperative");
+		$category_id = DB::table('categories')->select('id')->where('url_key','=','cooperative')
+						->first();
+		
+		if(isset($category_id->id))
+		{
+			$condition ="(regexp_split_to_array(category_ids,',')::integer[] @> '{". $category_id->id."}'::integer[]  and category_ids !='')";
+			$query1    = 'outlet_infos.language_id = (case when (select count(outlet_infos.id) as totalcount from outlet_infos where outlet_infos.language_id = '.getCurrentLang().' and outlets.id = outlet_infos.id) > 0 THEN '.getCurrentLang().' ELSE 1 END)';
+			$vendors = DB::table('vendors')
+				->Leftjoin('vendors_infos','vendors_infos.id','=','vendors.id')
+				->Leftjoin('outlets','outlets.vendor_id','=','vendors.id')
+				->Leftjoin('outlet_infos','outlet_infos.id','=','outlets.id')
+				->select('outlets.id as outlets_id','outlet_infos.outlet_name')
+				->whereRaw($condition)
+				->whereRaw($query1)
+				->get();
+			if(count($vendors) > 0)
+			{
+				//print_r($vendors);
+				foreach ($vendors as $cooprative)
+				{
+					//echo $cooprative->outlet_name;
+					if(isset($cooprative->outlets_id) && isset($cooprative->outlet_name))
+					{
+						$cooprative_list[$cooprative->outlets_id] = $cooprative->outlet_name;
+					}
+				}
+			}
+		}
+		return $cooprative_list;
+	}
+	function getOutLetCount($vendor_id)
+	{
+		$outlet_count = '';
+		return $outlet_count;
+	}
+	function get_user_details($user_id)
+	{
+		$user_detail = DB::table('users')
+						->select('users.social_title','users.first_name','users.last_name','users.email','users.gender','users.civil_id','users.cooperative as cooperative_id','users.cooperative','users.member_id','users.image','users.mobile','users.name')
+						->where('users.id',$user_id)
+						->first();
+		return $user_detail;
+	}
+	/* To get the active payment list */
+	function get_active_payment_gateway_list()
+	{
+		$payment_details = DB::table('payment_gateways')
+							->select('id')
+							->where('active_status',1)
+							->get();
+		return $payment_details;
+	}
+	function get_coupon_details($coupon_id)
+	{
+		
+		$coupon_details = DB::table('coupons')
+							->select('coupons_infos.coupon_title','coupons.coupon_code')
+						    ->join('coupons_infos','coupons_infos.id','=','coupons.id')
+							->where('coupons.id',$coupon_id)
+							->first();
+		return $coupon_details;
+	}
+	function get_admin_product_details($product_id)
+	{
+		$query = '"products_infos"."lang_id" = (case when (select count(products_infos.id) as totalcount from products_infos where products_infos.lang_id = '.getAdminCurrentLang().' and products.id = products_infos.id) > 0 THEN '.getAdminCurrentLang().' ELSE 1 END)';
+		$product_details = DB::table('products')
+							->select('products_infos.product_name','products.id')
+							->join('products_infos','products_infos.id','=','products.id')
+							->where('products.id',$product_id)
+							->whereRaw($query)
+							->first();
+		return $product_details;
+	}
+	function get_admin_vendor_details($product_id)
+	{
+		$query  = '"vendors_infos"."lang_id" = (case when (select count(vendors_infos.id) as totalcount from vendors_infos where vendors_infos.lang_id = '.getAdminCurrentLang().' and vendors.id = vendors_infos.id) > 0 THEN '.getAdminCurrentLang().' ELSE 1 END)';
+		$query1 = '"products_infos"."lang_id" = (case when (select count(products_infos.id) as totalcount from products_infos where products_infos.lang_id = '.getAdminCurrentLang().' and products.id = products_infos.id) > 0 THEN '.getAdminCurrentLang().' ELSE 1 END)';
+		$vendor_details = DB::table('products')
+							->select('vendors_infos.vendor_name','vendors.id')
+							->join('vendors','vendors.id','=','products.vendor_id')
+							->join('vendors_infos','vendors_infos.id','=','vendors.id')
+							->join('products_infos','products_infos.id','=','products.id')
+							->where('products.id',$product_id)
+							->whereRaw($query)
+							->whereRaw($query1)
+							->first();
+		return $vendor_details;
+	}
+	function modules_list()
+	{
+		$module_list = DB::table('modules')
+							->select('module_name','active_status')
+							->first();
+		return $module_list;
+	}
+?>

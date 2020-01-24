@@ -1,0 +1,161 @@
+var overlayWMS;
+function bound(value, opt_min, opt_max) {
+    if (opt_min != null) value = Math.max(value, opt_min);
+    if (opt_max != null) value = Math.min(value, opt_max);
+    return value;
+}
+
+function degreesToRadians(deg) {
+    return deg * (Math.PI / 180);
+}
+
+function radiansToDegrees(rad) {
+    return rad / (Math.PI / 180);
+}
+
+function MercatorProjection() {
+    var MERCATOR_RANGE = 256;
+    this.pixelOrigin_ = new google.maps.Point(
+        MERCATOR_RANGE / 2, MERCATOR_RANGE / 2);
+    this.pixelsPerLonDegree_ = MERCATOR_RANGE / 360;
+    this.pixelsPerLonRadian_ = MERCATOR_RANGE / (2 * Math.PI);
+};
+
+MercatorProjection.prototype.fromLatLngToPoint = function(latLng, opt_point) {
+    var me = this;
+
+    var point = opt_point || new google.maps.Point(0, 0);
+
+    var origin = me.pixelOrigin_;
+    point.x = origin.x + latLng.lng() * me.pixelsPerLonDegree_;
+    // NOTE(appleton): Truncating to 0.9999 effectively limits latitude to
+    // 89.189.  This is about a third of a tile past the edge of the world tile.
+    var siny = bound(Math.sin(degreesToRadians(latLng.lat())), -0.9999, 0.9999);
+    point.y = origin.y + 0.5 * Math.log((1 + siny) / (1 - siny)) * -me.pixelsPerLonRadian_;
+    return point;
+};
+
+MercatorProjection.prototype.fromDivPixelToLatLng = function(pixel, zoom) {
+    var me = this;
+
+    var origin = me.pixelOrigin_;
+    var scale = Math.pow(2, zoom);
+    var lng = (pixel.x / scale - origin.x) / me.pixelsPerLonDegree_;
+    var latRadians = (pixel.y / scale - origin.y) / -me.pixelsPerLonRadian_;
+    var lat = radiansToDegrees(2 * Math.atan(Math.exp(latRadians)) - Math.PI / 2);
+    return new google.maps.LatLng(lat, lng);
+};
+
+MercatorProjection.prototype.fromDivPixelToSphericalMercator = function(pixel, zoom) {
+    var me = this;
+    var coord = me.fromDivPixelToLatLng(pixel, zoom);
+
+    var r= 6378137.0;
+    var x = r* degreesToRadians(coord.lng());
+    var latRad = degreesToRadians(coord.lat());
+    var y = (r/2) * Math.log((1+Math.sin(latRad))/ (1-Math.sin(latRad)));
+
+    return new google.maps.Point(x,y);
+};
+
+function loadWMS(map, baseURLs, customParams){	
+    var tileHeight = 256;
+    var tileWidth = 256;
+    var opacityLevel = 0.75;
+    var isPng = true;
+    var minZoomLevel = 2;
+    var maxZoomLevel = 28;
+
+    //var baseURL = "";
+    var wmsParams = [
+    "REQUEST=GetMap",
+    "SERVICE=WMS",
+    "VERSION=1.1.0",
+    "BGCOLOR=0xFFFFFF",
+    "TRANSPARENT=TRUE",
+    "SRS=EPSG:32638", // 3395?
+    "WIDTH="+ tileWidth,
+    "HEIGHT="+ tileHeight
+    ];
+
+    //add additional parameters
+    var wmsParams = wmsParams.concat(customParams);
+
+    var overlayOptions =
+    {
+        getTileUrl: function(coord, zoom)
+        {
+            $.extend(customParamstile,{
+                "request":"GetMap",
+                "service":"WMS",
+                "version":"1.1.0",
+                "BGCOLOR":"0xFFFFFF",
+                "TRANSPARENT":"TRUE",
+                "WIDTH": tileWidth,
+                 "HEIGHT": tileHeight
+                 });
+                var params = [], l=0;
+                $.each(customParamstile,function(k,v){
+                    params[l] = k+"="+v;
+                    l++;
+                });
+
+                var url = baseURLs+"?"+params.join("&");
+            //return 'http://www.localhost.com/geoserver/gwc/service/gmaps?layers=kuwait:query1&zoom=' + zoom + '&x=' + coord.x + '&y=' + coord.y + '&format=image/png8';
+            var lULP = new google.maps.Point(coord.x*256,(coord.y+1)*256);
+            var lLRP = new google.maps.Point((coord.x+1)*256,coord.y*256);
+
+            var projectionMap = new MercatorProjection();
+
+            var e =  map.getBounds(),
+          t = e.getNorthEast(),
+          n = e.getSouthWest();
+        //console.log([n.lat(), t.lat(), n.lng(), t.lng()].join(","));
+
+            var lULg = projectionMap.fromDivPixelToSphericalMercator(lULP, zoom);
+            var lLRg  = projectionMap.fromDivPixelToSphericalMercator(lLRP, zoom);
+
+            var lUL_Latitude = lULg.y;
+            var lUL_Longitude = lULg.x;
+            var lLR_Latitude = lLRg.y;
+            var lLR_Longitude = lLRg.x;
+            //GJ: there is a bug when crossing the -180 longitude border (tile does not render) - this check seems to fix it
+            if (lLR_Longitude < lUL_Longitude){
+              lLR_Longitude = Math.abs(lLR_Longitude);
+            }
+
+           // var urlResult = baseURL + wmsParams.join("&") + "&bbox=" + lUL_Longitude + "," + lUL_Latitude + "," + lLR_Longitude + "," + lLR_Latitude;
+
+            var urlResult = url + "&bbox=" + lUL_Longitude + "," + lUL_Latitude + "," + lLR_Longitude + "," + lLR_Latitude;
+            //console.log(urlResult);
+
+
+            return urlResult;
+        },
+
+        tileSize: new google.maps.Size(tileHeight, tileWidth),
+
+        minZoom: minZoomLevel,
+        maxZoom: maxZoomLevel,
+
+        opacity: opacityLevel,
+
+        isPng: isPng
+    };
+    //map.overlayMapTypes.removeAt(0); 
+    overlayWMS = new google.maps.ImageMapType(overlayOptions);
+
+    map.overlayMapTypes.insertAt(0, overlayWMS);
+
+    map.setOptions({
+        mapTypeControlOptions: {
+            mapTypeIds: [
+            google.maps.MapTypeId.ROADMAP,
+            google.maps.MapTypeId.TERRAIN,
+            google.maps.MapTypeId.SATELLITE,
+            google.maps.MapTypeId.HYBRID
+            ],
+            style: google.maps.MapTypeControlStyle.DROPDOWN_MENU
+        }
+    });
+}

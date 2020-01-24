@@ -1,0 +1,326 @@
+﻿@import url('https://fonts.googleapis.com/css?family=Poppins:400,500,600&display=swap');
+
+html,
+body {
+  font-family: 'Poppins', sans-serif;
+  background: #ffffff;
+  height: 100%
+}
+
+/* utilities*/
+.navbar-light .navbar-nav .nav-link {
+  font-size: 1rem;
+  font-weight: 300;
+  color: rgb(83, 83, 83);
+}
+
+.topmargin {
+margin-top: 80px;
+}
+
+.activeline {
+  border-bottom: 2px solid rgb(23, 141, 23);
+}
+
+.title1 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #6a6a6a;
+}
+
+.card-title1 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #434343;
+}
+
+.title2 {
+  font-size: 0.65rem;
+  font-weight: normal;
+  color:#3D6AF2
+}
+
+.title3 {
+  font-size: 0.75rem;
+  font-weight: normal;
+  color: #797878;
+}
+
+.card-title3 {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: #797878;
+}
+
+.title4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #888888
+}
+
+.title5 {
+  font-size: 0.60rem;
+  font-weight: normal;
+  color: #797878;
+  line-height: 1.2;
+}
+
+.btn-title {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: #ffffff;
+}
+
+.bg-cuslight {
+  background-color: #fafafa ;
+}
+
+.bg-color {
+  color: #dadada;
+}
+
+.text-1 {
+  color: #808080;
+}
+
+.btn-titlep {
+  font-size: 0.75rem;
+}
+
+.icon-red{
+  color: #F24130;
+}
+
+.icon-gray {
+  color: #808080;;
+}
+
+.icon-light {
+  color: #acacace6;
+}
+
+
+.last-rigth {
+  text-align: justify;
+  text-align-last: right;
+}
+
+.circle {
+  border-radius: 2rem !important;
+}
+
+.line {
+  width: 100%;
+  border-bottom: 1px solid rgb(235, 235, 235);
+}
+
+.fa-c1x {
+  font-size: 1.70rem;
+}
+
+.nav-pills .nav-link {
+  border-radius: 0;
+}
+
+.hr-h {
+  border-left: 1px solid #c9c9c9;
+  line-height: 100%;
+}
+
+a:hover {
+  color: unset;
+}
+
+
+.navbar .navbar-nav .nav-link {
+  color: #434343;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+
+/* .flex-column a {
+  font-size: 0.85rem;
+  padding: 0.25rem 0;
+  font-weight: normal;
+  color: #f1f1f1;
+  display: flex;
+} */
+
+ #outlet_map {
+        /*height: 10px;*/  /* The height is 400 pixels */
+        width: 100%;  /* The width is the width of the web page */
+        position: relative;
+       }
+
+
+
+.page-wrap {
+  min-height: 100%;
+  /* equal to footer height */
+  margin-bottom: -80px; 
+}
+
+.page-wrap:after {
+  content: "";
+  display: block;
+}
+
+.site-footer, .page-wrap:after {
+  height: 80px; 
+}
+.site-footer {
+  background: #231f20;
+  color: #ffffff;
+}
+
+
+.shadow-sm {
+box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075) !important;
+}
+
+.card {
+  border: 1px solid #ababab29;
+  border-radius: 0.20rem;
+}
+
+#otp {
+/*  padding-left: 15px;
+  letter-spacing: 42px;
+  border: 0;
+  background-image: linear-gradient(to left, black 70%, rgba(255, 255, 255, 0) 0%);
+  background-position: bottom;
+  background-size: 50px 1px;
+  background-repeat: repeat-x;
+  background-position-x: 35px;
+  width: 200px;
+  overflow: hidden;
+  position: fixed;
+  white-space: nowrap;*/
+  width: 200px;
+    height: 50px;
+    font-size: 30px;
+    
+    letter-spacing: 32px;
+    text-indent: 18px;
+      overflow: hidden;
+    position: relative;
+    padding: 0;
+    margin: 0;
+
+}
+
+@media screen and (min-width: 800px) {
+  /*#main-footer {
+ 
+    left: 0;
+    bottom: 0;
+    height: 40px;
+    width: 100%;
+    background-color: gray;
+    color: white;
+    text-align: center;
+}*/
+
+  .map-size {
+    height: 100%;
+    width: 100%;
+  }
+
+  #map {
+    height: 400px;
+  }
+
+  #outlet_map {
+        height: 400px;  /* The height is 400 pixels */
+        width: 100%;  /* The width is the width of the web page */
+        position: relative;
+       }
+
+ 
+}
+
+@media screen and (max-width: 800px) {
+  /*#main-footer {
+     margin-top: auto;
+    left: 0;
+    bottom: 0;
+    height: 40px;
+    width: 100%;
+    background-color: gray;
+    color: white;
+    text-align: center;
+}*/
+
+  .map-size {
+    height: 100%;
+    width: 100%;
+  }
+
+  #map {
+    height: 300px;
+  }
+
+  #outlet_map {
+        height: 300px;  /* The height is 400 pixels */
+        width: 100%;  /* The width is the width of the web page */
+        position: relative;
+       }
+
+  
+}
+
+.otpBox{
+  width:250px;margin:0 auto;margin-top: 150px;padding: 20px;background: #f5f5f5;border: 1px solid #d4d4d4;height: 150px;
+}
+
+
+.carousel-caption {
+  position: absolute;
+  right: (100% - $carousel-caption-width) / 2;
+  bottom: 300px;
+  left: (100% - $carousel-caption-width) / 2;
+  z-index: 10;
+  padding-top: 20px;
+  padding-bottom: 20px;
+  color: $carousel-caption-color;
+  text-align: center;
+}
+
+.carousel-inner:after {
+   content:"";
+  display:block;
+  position:absolute;
+  top:0;
+  bottom:0;
+  left:0;
+  right:0;
+  background:rgba(0,0,0,0.6);
+}
+
+.w-70 {
+    width: 70% !important;
+}
+.w-30 {
+    width: 130px !important
+}
+.outlet-title1 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #434343;
+}
+.outlet-title3 {
+    font-size: 0.50rem;
+    font-weight: 500;
+    color: #797878;
+}
+.outlet-title2 {
+    font-size: 0.65rem;
+    font-weight: normal;
+    color:#3D6AF2
+}
+#card-btmno .card {
+    border: none;
+    border-bottom: 1px solid #EBE9E9;
+    border-radius: 0;
+}

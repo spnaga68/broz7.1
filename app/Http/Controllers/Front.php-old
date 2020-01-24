@@ -1,0 +1,1081 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App;
+use App\Model\api;
+use App\Model\cms;
+use App\Model\contactus;
+use App\Model\users;
+use DB;
+use GuzzleHttp\Client;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Input;
+use Illuminate\Support\Facades\Redirect;
+use Illuminate\Support\Facades\URL;
+use JWTAuth;
+use Mail;
+use OpenGraph;
+use SEOMeta;
+use Session;
+use Socialite;
+use Twitter;
+
+//~ DB::enableQueryLog();
+
+class Front extends Controller {
+	const USERS_SIGNUP_EMAIL_TEMPLATE = 1;
+	const USERS_WELCOME_EMAIL_TEMPLATE = 3;
+	const COMMON_MAIL_TEMPLATE = 8;
+	const ADMIN_MAIL_TEMPLATE_CONTACT = 13;
+	const USER_MAIL_TEMPLATE_CONTACT = 15;
+	const VENDORS_REGISTER_EMAIL_TEMPLATE = 4;
+	/**
+	 * Create a new controller instance.
+	 *
+	 * @return void
+	 */
+
+	public function __construct() {
+		$this->site_name = isset(getAppConfig()->site_name) ? ucfirst(getAppConfig()->site_name) : '';
+		//~ print_r(getAppConfig()->site_name);exit;
+		$this->client = new Client([
+			// Base URI is used with relative requests
+			'base_uri' => url('/'),
+			//'base_uri' => url('http://127.0.0.1/'),
+			// You can set any number of default request options.
+			'timeout' => 3000.0,
+		]);
+		$this->theme = Session::get("general")->theme;
+		$this->api = New Api;
+	}
+
+	public function check_login() {
+		$user_details = array();
+		$user_id = Session::get('user_id');
+		$token = Session::get('token');
+		if ($user_id != "") {
+			$user_array = array("user_id" => $user_id, "token" => $token);
+			$method = "POST";
+			$data = array('form_params' => $user_array);
+			$response = $this->api->call_api($data, 'api/user_detail', $method);
+			$user_details = $response->response->user_data[0];
+		}
+		return $user_details;
+	}
+
+	public function home() {
+		$user_details = $this->check_login();
+		SEOMeta::setTitle($this->site_name);
+		SEOMeta::setDescription($this->site_name);
+		SEOMeta::addKeyword($this->site_name);
+		OpenGraph::setTitle($this->site_name);
+		OpenGraph::setDescription($this->site_name);
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle($this->site_name);
+		Twitter::setSite('@' . $this->site_name);
+		return view('front.' . $this->theme . '.home')->with("user_details", $user_details);
+
+	}
+
+	public function dynamics() {
+		$user_details = $this->check_login();
+		SEOMeta::setTitle($this->site_name);
+		SEOMeta::setDescription($this->site_name);
+		SEOMeta::addKeyword($this->site_name);
+		OpenGraph::setTitle($this->site_name);
+		OpenGraph::setDescription($this->site_name);
+		OpenGraph::setUrl(URL::to('/dynamic'));
+		Twitter::setTitle($this->site_name);
+		Twitter::setSite('@' . $this->site_name);
+		return view('front.' . $this->theme . '.dynamic')->with("user_details", $user_details);
+
+	}
+
+
+	public function table() {
+		$user_details = $this->check_login();
+		SEOMeta::setTitle($this->site_name);
+		SEOMeta::setDescription($this->site_name);
+		SEOMeta::addKeyword($this->site_name);
+		OpenGraph::setTitle($this->site_name);
+		OpenGraph::setDescription($this->site_name);
+		OpenGraph::setUrl(URL::to('/table'));
+		Twitter::setTitle($this->site_name);
+		Twitter::setSite('@' . $this->site_name);
+		return view('front.' . $this->theme . '.table')->with("user_details", $user_details);
+
+	}
+
+	public function forgot_password(Request $data) {
+		$api = New Api;
+		$post_array = $data->all();
+		$user_array = array("email" => $post_array['email'], "language" => getCurrentLang());
+		$method = "POST";
+		$data = array('form_params' => $user_array);
+
+		$response = $api->call_api($data, 'api/forgot_password', $method);
+
+		if ($response->response->httpCode == '200') {
+			return response()->json($response->response);
+		} else {
+			return response()->json($response->response);
+		}
+	}
+
+	public function login_user(Request $data) {
+		$api = New Api;
+		$post_array = $data->all();
+		$user_array = array("email" => $post_array['email'], "password" => $post_array['password'], "login_type" => 1, "user_type" => 3, "language" => getCurrentLang());
+		$method = "POST";
+		$data = array('form_params' => $user_array);
+		$response = $api->call_api($data, 'api/login_user', $method);
+		if ($response->response->httpCode == '200') {
+			Session::put('user_id', $response->response->user_id);
+			Session::put('mobile', $response->response->mobile);
+			Session::put('email', $response->response->email);
+			Session::put('first_name', $response->response->first_name);
+			Session::put('last_name', $response->response->last_name);
+			Session::put('name', $response->response->name);
+			Session::put('social_title', $response->response->social_title);
+			Session::put('profile_image', $response->response->image);
+			Session::put('token', $response->response->token);
+			return response()->json($response->response);
+		} else {
+			return response()->json($response->response);
+		}
+	}
+
+	public function signup_user(Request $data) {
+		$api = New Api;
+		$user_array = $data->all();
+		$url = url("/api/signup_user");
+		$method = "POST";
+		$user_array["login_type"] = 1;
+		$user_array["language"] = getCurrentLang();
+		$data = array('form_params' => $user_array);
+		$response = $api->call_api($data, $url, $method);
+
+		if ($response->response->httpCode == '200') {
+			return response()->json($response->response);
+		} else {
+			return response()->json($response->response);
+		}
+	}
+	public function store_register_user(Request $data) {
+		$api = New Api;
+		$user_array = $data->all();
+		$url = url("/api/store_register_user");
+		$method = "POST";
+		$user_array["login_type"] = 1;
+		$user_array["language"] = getCurrentLang();
+		$data = array('form_params' => $user_array);
+		$response = $api->call_api($data, $url, $method);
+
+		if ($response->response->httpCode == '200') {
+			return response()->json($response->response);
+		} else {
+			return response()->json($response->response);
+		}
+	}
+	public function redirectToProvider() {
+		return Socialite::driver('facebook')->redirect();
+	}
+
+	public function handleProviderCallback() {
+
+		$user = Socialite::driver('facebook')->stateless()->user();
+		//  print_r($user);exit;
+		$gender = '';
+		$name = $user["name"];
+		$fb_token = $user->token;
+		$name_splitted = explode(" ", $name);
+		$first_name = isset($name_splitted[0]) ? $name_splitted[0] : "";
+		$last_name = isset($name_splitted[1]) ? $name_splitted[1] : "";
+		$email = isset($user["email"]) ? $user["email"] : "";
+		if (!empty($user["gender"])) {
+			$gender = ($user["gender"] == "male") ? "M" : "F";
+		}
+		$facebook_id = $user["id"];
+		$api = New Api;
+		$user_array = array("name" => $name, "first_name" => $first_name, "last_name" => $last_name, "email" => $email, "gender" => $gender, "login_type" => 1, "facebook_id" => $facebook_id, "image_url" => $user->getAvatar(), "language" => getCurrentLang());
+		//print_r($user_array); exit;
+		$url = url("/api/signup_fb_user");
+		$method = "POST";
+		$data = array('form_params' => $user_array);
+		$response = $api->call_api($data, $url, $method);
+		// print_r($response->response->Message);exit;
+		if ($response->response->status == false) {
+			//echo "if1";exit;
+			Session::flash('message', $response->response->Message);
+			return Redirect::to('/');
+		} else if ($response->response->status == true) {
+			//echo "elseif";exit;
+			Session::flash('message', $response->response->Message);
+			Session::put('user_id', $response->response->user_id);
+			Session::put('mobile', $response->response->mobile);
+			Session::put('email', $response->response->email);
+			Session::put('first_name', $response->response->first_name);
+			Session::put('last_name', $response->response->last_name);
+			Session::put('name', $response->response->name);
+			Session::put('social_title', $response->response->social_title);
+			Session::put('profile_image', $response->response->image);
+			Session::put('token', $response->response->token);
+			Session::put('facebook_id', $response->response->facebook_id);
+			Session::put('fb_token', $fb_token);
+			if ($response->response->email == "" || $response->response->mobile == "") {
+				return Redirect::to('/profile');
+			}
+			return Redirect::to('/');
+		} else {
+			//echo "else";exit;
+			Session::flash('message', $response->response->Message);
+			return Redirect::to('/');
+		}
+
+	}
+
+	public function welcome($index = '') {
+		SEOMeta::setTitle(Session::get('general_site')->site_name);
+		SEOMeta::setDescription(Session::get('general_site')->site_name);
+		SEOMeta::addKeyword(Session::get('general_site')->site_name);
+		OpenGraph::setTitle(Session::get('general_site')->site_name);
+		OpenGraph::setDescription(Session::get('general_site')->site_name);
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get('general_site')->site_name);
+		Twitter::setSite(Session::get('general_site')->site_name);
+		return view('front.' . $this->theme . '.welcome');
+	}
+	/** Signup Email Confirmation **/
+	public function signup_confirmation($verifictaion_key, $email, $password) {
+
+		$api = New Api;
+		if ($verifictaion_key && $email) {
+			$user_array = array("key" => $verifictaion_key, "email" => $email, "u_password" => $password, "language" => getCurrentLang());
+			$url = url("/api/signup_confirmation");
+			$method = "POST";
+			$data = array('form_params' => $user_array);
+			$response = $api->call_api($data, $url, $method);
+			if ($response->response->httpCode == '200') {
+				Session::put('user_id', $response->response->user_id);
+				Session::put('mobile', $response->response->mobile);
+				Session::put('email', $response->response->email);
+				Session::put('first_name', $response->response->first_name);
+				Session::put('last_name', $response->response->last_name);
+				Session::put('name', $response->response->name);
+				Session::put('social_title', $response->response->social_title);
+				Session::put('profile_image', $response->response->image);
+				Session::put('token', $response->response->token);
+				Session::flash('message', $response->response->Message);
+				return Redirect::to('/');
+			} else {
+				Session::flash('message', $response->response->Message);
+				return Redirect::to('/');
+			}
+
+		}
+	}
+
+	public function aboutus($index = '') {
+		//print_r(Session::get("general_site")->site_name);exit;
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		$query = '"blog_infos"."language_id" = (case when (select count(*) as totalcount from blog_infos where blog_infos.language_id = ' . getCurrentLang() . ' and blogs.id = blog_infos.blog_id) > 0 THEN ' . getCurrentLang() . ' ELSE 1 END)';
+		$blogs = DB::table('blogs')
+			->select('blogs.*', 'blog_infos.*')
+			->leftJoin('blog_infos', 'blog_infos.blog_id', '=', 'blogs.id')
+			->whereRaw($query)
+			->orderBy('blogs.id', 'asc')
+			->paginate(3);
+		$type = 2;
+		$query = '"categories_infos"."language_id" = (case when (select count(*) as totalcount from categories_infos where categories_infos.language_id = ' . getCurrentLang() . ' and categories.id = categories_infos.category_id) > 0 THEN ' . getCurrentLang() . ' ELSE 1 END)';
+		$category = DB::table('categories')
+			->select('categories.*', 'categories_infos.*')
+			->leftJoin('categories_infos', 'categories_infos.category_id', '=', 'categories.id')
+			->whereRaw($query)
+			->where("categories.category_type", "=", $type)
+			->orderBy('categories_infos.category_name', 'asc')
+			->get();
+		return view('front.' . $this->theme . '.aboutus')->with('blog', $blogs)->with('category', $category);
+	}
+
+	public function weare_hiring() {
+		// Section description
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'Weare hiring');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'Weare hiring');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'Weare hiring');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'Weare hiring');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'Weare hiring');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'Weare hiring');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.weare_hiring');
+	}
+
+	public function product_info() {
+		// Section description
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'Product info');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'Product info');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'Product info');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'Product info');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'Product info');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'Product info');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.product_info');
+	}
+
+	public function sitmap() {
+		// Section description
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'Sitemap');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'Sitemap');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'Sitemap');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'Sitemap');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'Sitemap');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'Sitemap');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.sitmap');
+	}
+
+	public function press_contact() {
+		// Section description
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'press contact');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'press contact');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'press contact');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'press contact');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'press contact');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'press contact');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.press_contact');
+	}
+	public function ourservice_areas() {
+		// Section description
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'our service areas');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'our service areas');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'our service areas');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'our service areas');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'our service areas');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'our service areas');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.ourservice_areas');
+	}
+
+	public function portfolios($index = "") {
+		SEOMeta::setTitle(getAppConfig()->site_name);
+		SEOMeta::setDescription(getAppConfig()->site_name);
+		SEOMeta::addKeyword(getAppConfig()->site_name);
+		OpenGraph::setTitle(getAppConfig()->site_name);
+		OpenGraph::setDescription(getAppConfig()->site_name);
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(getAppConfig()->site_name);
+		Twitter::setSite(getAppConfig()->site_name);
+		// Section description
+		if (!$index) {
+			$portfolios = DB::table('portfolios')->orderBy('id', 'desc')->get(); //->paginate(20);
+		} else {
+			$type = 2;
+			$category_id = DB::select('select id from  categories where category_type = "' . $type . '" and url_key = "' . $index . '" limit 1');
+			if (count($category_id)) {
+				$portfolios = DB::select('select * from  portfolios where FIND_IN_SET("' . $category_id[0]->id . '",category_ids) > 0 order by id desc');
+			} else {
+				return Redirect::to('/portfolios');
+			}
+		}
+		// load the view and list the portfolios
+		$type = 2;
+		$category = DB::select('select     id,category_name,url_key from  categories where category_type = "' . $type . '" and category_status = 1 order by id desc limit 3');
+
+		$category1 = DB::select('select id,category_name,url_key from  categories where category_type = "' . $type . '" and category_status = 1 order by id desc');
+		return view('front.' . $this->theme . '.portfolios')->with('portfolio', $portfolios)->with('category', $category)->with('category1', $category1);
+	}
+
+	public function portfolios_info($index) {
+		$portfolios = DB::select('select * from portfolios where portfolio_index = "' . $index . '"');
+		if (!count($portfolios)) {
+			Session::flash('message', 'Invalid Portfolio');
+			Session::flash('alert-class', 'alert-danger');
+			return Redirect::to('/');
+		}
+		SEOMeta::setTitle($portfolios[0]->title);
+		SEOMeta::setDescription($portfolios[0]->short_notes);
+		SEOMeta::addKeyword('portfolio, Nextbrain portfolio, ' . $portfolios[0]->title . '');
+		OpenGraph::setTitle($portfolios[0]->title);
+		OpenGraph::setDescription($portfolios[0]->short_notes);
+		OpenGraph::setUrl('Solutek');
+		Twitter::setTitle($portfolios[0]->title);
+		// Section description
+		$type = 2;
+		$category = DB::select('select     id,category_name from  categories where category_type = "' . $type . '" and category_status = 1 order by id desc');
+		return view('front.' . $this->theme . '.portfolios_info')->with('portfolio', $portfolios)->with('category', $category);
+	}
+
+	public function contactus() {
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'Contact us');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'Contact us');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'Contact us');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'Contact us');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'Contact us');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'Contact us');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		// Section description
+		return view('front.' . $this->theme . '.contactus');
+	}
+
+	/**
+	 * Store contactus in storage.
+	 *
+	 * @return Response
+	 */
+	/* public function storecontact(Request $data)
+		    {
+
+		        //print_r($data->all());exit;
+
+		        // validate
+		        // read more on validation at http://laravel.com/docs/validation
+		        $validation = Validator::make($data->all(), array(
+
+		            'name' => ['required','alpha', 'max:56'],
+		            'email'      => ['required', 'email', 'max:250'],
+		            'mobile_number'      => ['required','regex:/\(?([0-9]{3})\)?([ .-]?)([0-9]{3})\2([0-9]{4})/'],
+		            'message' => 'required',
+		            'city' => 'required',
+		            'enquery_type' => 'required',
+		            //'captcha' => 'required|valid_captcha',
+		        ));
+
+		        // process the validation
+		        if ($validation->fails()) {
+		                //echo "asdfasdf";exit;
+		                //return redirect('/contact-us')->withErrors($validation);
+		                return Redirect::back()->withErrors($validation)->withInput();
+		        } else {
+
+		            //echo "asdf";exit;
+		            // store
+		            $contactus = new Contactus;
+		            $contactus->name      = $_POST['name'];
+		            $contactus->email    = $_POST['email'];
+		            $contactus->phone_number    = $_POST['mobile_number'];
+		            $contactus->message    = $_POST['message'];
+		            $contactus->enquery_type    = $_POST['enquery_type'];
+		            $contactus->city_id    = $_POST['city'];
+		            $contactus->created_at = date("Y-m-d H:i:s");
+		            $contactus->save();
+
+		            $to=getAppConfigEmail()->support_mail;
+		            $email = $_POST['email'];
+		            $subject = "Contact request from ". getAppConfig()->site_name." by ".$_POST['name'];
+		            $content = $_POST['message'];
+		            $template=DB::table('email_templates')
+		            ->select('*')
+		            ->where('template_id','=',self::ADMIN_MAIL_TEMPLATE_CONTACT)
+		            ->get();
+		            if(count($template)){
+		                $from = $template[0]->from_email;
+		                $from_name=$template[0]->from;
+		                //$subject = $template[0]->subject;
+		                if(!$template[0]->template_id){
+		                    $template = 'mail_template';
+		                    $from=getAppConfigEmail()->contact_mail;
+		                    $subject = "Welcome to ".getAppConfig()->site_name;
+		                    $from_name="";
+		                }
+		                $content =array("notification" => array('name' => $_POST['name'],'email' => $_POST['email'],'message' => $_POST['message'],'mobile' => $_POST['mobile_number']));
+		                $email=smtp($from,$from_name,$to,$subject,$content,$template);
+		            }
+		            $to=$_POST['email'];
+		            $email = $_POST['email'];
+		            $subject = "Contact request reply from ". getAppConfig()->site_name;
+		            $content = $_POST['message'];
+		            $template=DB::table('email_templates')
+		            ->select('*')
+		            ->where('template_id','=',self::USER_MAIL_TEMPLATE_CONTACT)
+		            ->get();
+		            if(count($template)){
+		                $from = $template[0]->from_email;
+		                $from_name=$template[0]->from;
+		                //$subject = $template[0]->subject;
+		                if(!$template[0]->template_id){
+		                    $template = 'mail_template';
+		                    $from=getAppConfigEmail()->contact_mail;
+		                    $subject = "Welcome to ".getAppConfig()->site_name;
+		                    $from_name="";
+		                }
+		                $content =array("notification" => array('name' => $_POST['name'],'email' => $_POST['email'],'message' => $_POST['message'],'mobile' => $_POST['mobile_number']));
+		                $email=smtp($from,$from_name,$to,$subject,$content,$template);
+		            }
+		            Session::flash('message', 'Your request has been posted successfully');
+		            return Redirect::to('/contact-us');
+		        }
+	*/
+	public function storecontact(Request $data) {
+
+		if (isset($post_data['language']) && $post_data['language'] == 2) {
+			App::setLocale('es');
+		} else {
+			App::setLocale('en');
+		}
+		$method = "POST";
+		$post_data = $data->all();
+		//print_r($post_data);exit;
+		$url = url("/api/store_contact");
+		$data = array('form_params' => $post_data);
+		$response = $this->api->call_api($data, $url, $method);
+		return response()->json($response->response);
+	}
+
+	public function blog($index = '') {
+		$url_index = Input::get('filter');
+		$keyword = Input::get('keyword');
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'Blog');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'Blog');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'Blog');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'Blog');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'Blog');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'Blog');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		$type = 3;
+		$category_id = '';
+		if ($url_index) {
+			$category_id = DB::select("select id from  categories where category_type = $type and url_key ='" . $url_index . "' limit 1");
+		}
+		$query = '"blog_infos"."language_id" = (case when (select count(*) as totalcount from blog_infos where blog_infos.language_id = ' . getCurrentLang() . ' and blogs.id = blog_infos.blog_id) > 0 THEN ' . getCurrentLang() . ' ELSE 1 END)';
+		$condtion = 'blogs.status = 1';
+		if ($category_id) {
+			$c_ids = $category_id[0]->id;
+			$condtion .= " and (regexp_split_to_array(category_ids,',')::integer[] @> '{" . $c_ids . "}'::integer[]  and category_ids !='')";
+		}
+		if ($keyword) {
+			$condtion .= " and blog_infos.title ILIKE '%" . $keyword . "%'";
+		}
+		$blogs = DB::table('blogs')
+			->select('blogs.*', 'blog_infos.*')
+			->leftJoin('blog_infos', 'blog_infos.blog_id', '=', 'blogs.id')
+			->whereRaw($query)
+			->whereRaw($condtion)
+			->orderBy('blogs.id', 'asc')
+			->get();
+
+		$query = '"categories_infos"."language_id" = (case when (select count(*) as totalcount from categories_infos where categories_infos.language_id = ' . getCurrentLang() . ' and categories.id = categories_infos.category_id) > 0 THEN ' . getCurrentLang() . ' ELSE 1 END)';
+		$category = DB::table('categories')
+			->select('categories.*', 'categories_infos.*')
+			->leftJoin('categories_infos', 'categories_infos.category_id', '=', 'categories.id')
+			->whereRaw($query)
+			->where("categories.category_type", "=", $type)
+			->orderBy('categories_infos.category_name', 'asc')
+			->get();
+		return view('front.' . $this->theme . '.blog')->with('blog', $blogs)->with('category', $category);
+	}
+
+	public function blog_info($index) {
+
+		$query = '"blog_infos"."language_id" = (case when (select count(*) as totalcount from blog_infos where blog_infos.language_id = ' . getCurrentLang() . ' and blogs.id = blog_infos.blog_id) > 0 THEN ' . getCurrentLang() . ' ELSE 1 END)';
+		$blog = DB::table('blogs')
+			->select('blogs.*', 'blog_infos.*')
+			->leftJoin('blog_infos', 'blog_infos.blog_id', '=', 'blogs.id')
+			->whereRaw($query)
+			->where("url_index", "=", $index)
+			->get();
+		if (!count($blog)) {
+			Session::flash('message', 'Invalid Blog');
+			Session::flash('alert-class', 'alert-danger');
+			return Redirect::to('/');
+		}
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . $blog[0]->title);
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . $blog[0]->short_notes);
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . $blog[0]->title . '');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . $blog[0]->title);
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . $blog[0]->short_notes);
+		OpenGraph::setUrl(Url::to('/'));
+		Twitter::setTitle($blog[0]->title);
+		Twitter::setSite(Session::get("general_site")->site_name);
+		DB::table('blogs')->where('url_index', $index)->increment('view_count');
+		// Section description
+		$type = 2;
+		$query1 = '"categories_infos"."language_id" = (case when (select count(*) as totalcount from categories_infos where categories_infos.language_id = ' . getCurrentLang() . ' and categories.id = categories_infos.category_id) > 0 THEN ' . getCurrentLang() . ' ELSE 1 END)';
+		$category = DB::table('categories')
+			->select('categories.*', 'categories_infos.*')
+			->leftJoin('categories_infos', 'categories_infos.category_id', '=', 'categories.id')
+			->whereRaw($query1)
+			->where("categories.category_type", "=", $type)
+			->orderBy('categories_infos.category_name', 'asc')
+			->get();
+		$tre_ids = $blog[0]->category_ids;
+		$condtion = "(regexp_split_to_array(category_ids,',')::integer[] @> '{" . $tre_ids . "}'::integer[]  and category_ids !='')";
+		$related_blog = DB::table('blogs')
+			->select('blogs.*', 'blog_infos.*')
+			->leftJoin('blog_infos', 'blog_infos.blog_id', '=', 'blogs.id')
+			->whereRaw($query)
+			->whereRaw($condtion)
+			->where("url_index", "!=", $index)
+			->limit(3)
+			->get();
+		$users = Users::find($blog[0]->created_by);
+		return view('front.' . $this->theme . '.blog_info')->with('blog', $blog[0])->with('category', $category)->with('related_blog', $related_blog)->with('users', $users);
+	}
+
+	public function offer() {
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		Twitter::setSite(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		// Section description
+		return view('front.' . $this->theme . '.offer');
+	}
+
+	public function register_your_store() {
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'Register your store');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'Register your store');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'Register your store');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'Register your store');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'Register your store');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'Register your store');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		// Section description
+		return view('front.' . $this->theme . '.register_your_store');
+	}
+
+	public function cms($index = "") {
+		$query = '"cms_infos"."language_id" = (case when (select count(*) as totalcount from cms_infos where cms_infos.language_id = ' . getCurrentLang() . ' and cms.id = cms_infos.cms_id) > 0 THEN ' . getCurrentLang() . ' ELSE 1 END)';
+		$cms_info = DB::table('cms')
+			->select('cms.*', 'cms_infos.*')
+			->leftJoin('cms_infos', 'cms_infos.cms_id', '=', 'cms.id')
+			->whereRaw($query)
+			->where("url_index", "=", $index)
+			->limit(1)
+			->get();
+		if (!count($cms_info)) {
+			Session::flash('message', 'Invalid Page');
+			Session::flash('alert-class', 'alert-danger');
+			return Redirect::to('/');
+		}
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . $cms_info[0]->title);
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . $cms_info[0]->title);
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . $cms_info[0]->title);
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . $cms_info[0]->title);
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . $cms_info[0]->title);
+		// OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . $cms_info[0]->title);
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.cms')->with('cmsinfo', $cms_info);
+	}
+	public function cms_mob($index, $language) {
+		$query = '"cms_infos"."language_id" = (case when (select count(*) as totalcount from cms_infos where cms_infos.language_id = ' . $language . ' and cms.id = cms_infos.cms_id) > 0 THEN ' . $language . ' ELSE 1 END)';
+		$cms_info = DB::table('cms')
+			->select('cms_infos.title', 'cms_infos.content', 'cms.id', 'cms.url_index')
+			->leftJoin('cms_infos', 'cms_infos.cms_id', '=', 'cms.id')
+			->whereRaw($query)
+			->where("url_index", "=", $index)
+			->limit(1)
+			->first();
+		//print_r($cms_info);exit;
+		return view('front.' . $this->theme . '.cmsinfo_mob')->with('cmsinfo', $cms_info);
+	}
+	public function logout() {
+		JWTAuth::invalidate(Session::get('token'));
+		if (Session::has('message-success')) {
+			$fb_token = Session::get('fb_token');
+			$url = 'https://www.facebook.com/logout.php?next=' . '{{url("/")}}' . '&access_token=' . $fb_token;
+			Session::flush();
+			return Redirect::to($url);
+		}
+		Session::flush();
+		Session::flash('message', trans("messages.Logout successfully completed"));
+		return Redirect::to('/');
+	}
+
+	public function user_membership(Request $data) {
+
+		$api = New Api;
+		$user_array = $data->all();
+		$url = url("/api/user_membership");
+		$method = "POST";
+		$post_array = array_merge($user_array, array('user_id' => Session::get('user_id')));
+		$data = array('form_params' => $post_array);
+		$response = $api->call_api($data, $url, $method);
+		if ($response->response->httpCode == '200') {
+			return response()->json($response->response);
+		} else {
+			return response()->json($response->response);
+		}
+	}
+
+	public function user_rating(Request $data) {
+		$api = New Api;
+		$user_array = $data->all();
+		$url = url("/api/user_rating");
+		$method = "POST";
+		$post_array = array_merge($user_array, array('user_id' => Session::get('user_id')));
+		$data = array('form_params' => $post_array);
+		$response = $api->call_api($data, $url, $method);
+		if ($response->response->httpCode == '200') {
+			return response()->json($response->response);
+		} else {
+			return response()->json($response->response);
+		}
+	}
+	public function user_subscribe(Request $data) {
+		$api = New Api;
+		$post_array = $data->all();
+		$user_array = array("subscribe_email" => isset($post_array['subscribe_email']) ? $post_array['subscribe_email'] : '', "language" => $post_array['language']);
+		$url = url("/api/user_subscribe");
+		$method = "POST";
+		$data = array('form_params' => $user_array);
+		$response = $api->call_api($data, $url, $method);
+		return response()->json($response->response);
+	}
+	public function user_unsubscribe($email) {
+		$api = New Api;
+		$user_array = array("email" => decrypt($email));
+		$url = url("/api/user_unsubscribe");
+		$method = "POST";
+		$data = array('form_params' => $user_array);
+		$response = $api->call_api($data, $url, $method);
+		Session::flash('message', $response->response->Message);
+		return Redirect::to('/');
+	}
+	public function product_rating(Request $data) {
+		$api = New Api;
+		$user_array = $data->all();
+		$url = url("/api/product_rating");
+		$method = "POST";
+		$post_array = array_merge($user_array, array('user_id' => Session::get('user_id')));
+		$data = array('form_params' => $post_array);
+		$response = $api->call_api($data, $url, $method);
+		if ($response->response->httpCode == '200') {
+			return response()->json($response->response);
+			return Redirect::to('product-info');
+		} else {
+			return response()->json($response->response);
+		}
+	}
+	public function location_outlet(Request $data) {
+
+		$rules = [
+			'latitude' => ['required'],
+			'longitude' => ['required'],
+		];
+		$api = New Api;
+		$post_data = $data->all();
+		$language = getCurrentLang();
+		//$language  = getCurrentLang();
+		$error = $result = array();
+		$validator = app('validator')->make($post_data, $rules);
+		$distance = 5 * 1000;
+
+		if ($validator->fails()) {
+			$errors = '';
+			$j = 0;
+			foreach ($validator->errors()->messages() as $key => $value) {
+				$error[] = is_array($value) ? implode(',', $value) : $value;
+			}
+			$errors = implode(", \n ", $error);
+			$result = array("response" => array("httpCode" => 200, "status" => false, "Error" => trans("messages.No Areas found."), "Message" => $errors));
+		} else {
+
+			$address = DB::select("select zones.url_index as location_url_index,cities.url_index as  city_url_index,earth_distance(ll_to_earth(" . $post_data['latitude'] . ', ' . $post_data['longitude'] . "), ll_to_earth(outlets.latitude, outlets.longitude)) as distance from outlets  left Join cities  on cities.id = outlets.city_id  left join zones on zones.id =outlets.location_id where earth_box(ll_to_earth(" . $post_data['latitude'] . ', ' . $post_data['longitude'] . '), ' . $distance . ") @> ll_to_earth(outlets.latitude, outlets.longitude) ");
+			$city_url_index = $location_url_index = '';
+			if (count($address) > 0) {
+				$city_url_index = $address[0]->city_url_index;
+				$location_url_index = $address[0]->location_url_index;
+				$result = array("response" => array("httpCode" => 200, "city_url_index" => $city_url_index, "location_url_index" => $location_url_index));
+			} else {
+				$result = array("response" => array("httpCode" => 400, "Message" => trans("messages.No service available in your location. Please select available location.")));
+			}
+		}
+		return json_encode($result, JSON_UNESCAPED_UNICODE);
+	}
+	public function faq($index = '') {
+		//print_r(Session::get("general_site")->site_name);exit;
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.faq');
+	}
+	public function accountsettings($index = '') {
+		//echo "in";exit;
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.account_settings');
+	}
+	public function mint($index = '') {
+		//print_r(Session::get("general_site")->site_name);exit;
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.mint');
+	}
+	public function price($index = '') {
+		//print_r(Session::get("general_site")->site_name);exit;
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.price');
+	}
+	public function request($index = '') {
+		//print_r(Session::get("general_site")->site_name);exit;
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.request');
+	}
+	public function editrequest($index = '') {
+		//print_r(Session::get("general_site")->site_name);exit;
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'FAQ');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		return view('front.' . $this->theme . '.edit_request');
+	}
+	public function aboutus_mob($language) {
+		if (isset($language) && $language == 2) {
+			App::setLocale('ar');
+		} else {
+			App::setLocale('en');
+		}
+		return view('front.' . $this->theme . '.aboutus_mob');
+	}
+
+	public function faq_mob($index, $language) {
+
+		$query = 'cms_infos.language_id = (case when (select count(cms_infos.language_id) as totalcount from cms_infos where cms_infos.language_id = ' . $language . ' and cms.id = cms_infos.cms_id) > 0 THEN ' . $language . ' ELSE 1 END)';
+		$cms = DB::table('cms')->select('cms.id', 'cms.url_index', 'cms.sort_order', 'cms_infos.title')
+			->leftJoin('cms_infos', 'cms_infos.cms_id', '=', 'cms.id', 'cms_infos.content', '=', 'content')
+			->whereRaw($query)
+			->where('cms.cms_type', '=', 2)
+			->where('cms.cms_status', '=', 1)
+			->where("url_index", "=", $index)
+			->orderBy('cms.sort_order', 'asc')
+			->get();
+		$faq_items = array();
+		if (count($cms) > 0) {
+			$faq_items = $cms;
+		}
+		return view('front.' . $this->theme . '.faq_mob')->with('faq_items', $faq_items);
+
+		//return response()->json($cms);
+	}
+
+	/** Driver Email Confirmation **/
+	public function driver_confirmation() {
+		$api = New Api;
+		$verifictaion_key = Input::get('key');
+		$email = Input::get('email');
+		$password = Input::get('password');
+		$success = false;
+		$errors = array();
+		if ($verifictaion_key && $email) {
+			$user_array = array("key" => $verifictaion_key, "email" => $email, "password" => $password, "language" => getCurrentLang());
+			$url = url("/api/driver_confirmation");
+			$method = "POST";
+			$data = array('form_params' => $user_array);
+			$response = $api->call_api($data, $url, $method);
+			Session::flash('message', $response->response->Message);
+			return Redirect::to('/');
+		}
+	}
+
+	public function register_check_otp(Request $data) {
+		$post_data = $data->all();
+		$post_data['language'] = getCurrentLang();
+		$method = "POST";
+		$data = array('form_params' => $post_data);
+		$checkout_details = $this->api->call_api($data, 'api/check-otp-registration', $method);
+		//print_r($checkout_details);exit;
+		if ($checkout_details->response->httpCode == '200') {
+			Session::put('user_id', $checkout_details->response->user_id);
+			Session::put('email', $checkout_details->response->email);
+			Session::put('first_name', $checkout_details->response->first_name);
+			Session::put('last_name', $checkout_details->response->last_name);
+			Session::put('name', $checkout_details->response->name);
+			Session::put('mobile', $checkout_details->response->mobile);
+			Session::put('social_title', $checkout_details->response->social_title);
+			Session::put('profile_image', $checkout_details->response->image);
+			Session::put('token', $checkout_details->response->token);
+			Session::put('is_verified', $checkout_details->response->is_verified);
+			return response()->json($checkout_details->response);
+		} else {
+			return response()->json($checkout_details->response);
+		}
+		// return response()->json($checkout_details->response);
+
+	}
+
+	public function reg_send_otp(Request $data) {
+		$post_data = $data->all();
+		$post_data['language'] = getCurrentLang();
+		$post_data['token'] = Session::get('token');
+		$method = "POST";
+		// print_r($data->all());exit;
+		$data = array('form_params' => $post_data);
+		$checkout_details = $this->api->call_api($data, '/api/reg-send-otp', $method);
+		//print_r($checkout_details);exit;
+		return response()->json($checkout_details->response);
+	}
+
+	public function driverabout($index = '') {
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		$data=DB::table('driver_cores')
+				->select('*')
+				->first();
+		return view('front.' . $this->theme . '.driverabout')->with('data', $data);
+	}
+
+	public function customerabout($index = '') {
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		$data=DB::table('customer_cores')
+				->select('*')
+				->first();
+		return view('front.' . $this->theme . '.customerabout')->with('data', $data);
+	}
+
+
+	public function driverterms_condition($index = '') {
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		$data=DB::table('driver_cores')
+				->select('*')
+				->first();
+		return view('front.' . $this->theme . '.drivertermscondtion')->with('data', $data);
+	}
+
+	public function customerterms_condition($index = '') {
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		$data=DB::table('customer_cores')
+				->select('*')
+				->first();
+		return view('front.' . $this->theme . '.customertermscondtion')->with('data', $data);
+	}
+
+	public function privacy_policy($index = '') {
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		$data=DB::table('customer_cores')
+				->select('*')
+				->first();
+		return view('front.' . $this->theme . '.privacypolicy')->with('data', $data);
+	}
+
+	public function customer_privacy_policy($index = '') {
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'About us');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'About us');
+		Twitter::setSite(Session::get("general_site")->site_name);
+		$data=DB::table('terms_of_serivce')
+				->select('*')
+				->where('title_const','=','customer_privacy_policy')
+				->get();
+			//	print_r($data);exit();
+		return view('front.' . $this->theme . '.termsofservice')->with('data', $data[0]);
+	}
+	public function sample()
+	{
+
+			$client = new \GuzzleHttp\Client();
+			$response = $client->request('GET', 'http://127.0.0.1');
+			echo $response->getStatusCode(); # 200
+			echo $response->getHeaderLine('content-type'); # 'application/json; charset=utf8'
+			echo $response->getBody(); # '{"id": 1420053, "name": "guzzle", ...}'
+
+
+	}
+	public function promotion() {
+		//print_r("expression");exit();
+		SEOMeta::setTitle(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		SEOMeta::setDescription(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		SEOMeta::addKeyword(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		OpenGraph::setTitle(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		OpenGraph::setDescription(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		OpenGraph::setUrl(URL::to('/'));
+		Twitter::setTitle(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		Twitter::setSite(Session::get("general_site")->site_name . ' - ' . 'Offers');
+		// Section description
+		return view('admin.toster');
+	}
+
+
+}

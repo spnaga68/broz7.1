@@ -1,0 +1,181 @@
+@extends('layouts.admin')
+@section('content')
+
+
+<div class="row">	
+	<div class="col-md-12 ">
+<!-- Nav tabs -->
+<div class="pageheader">
+<div class="media">
+	<div class="pageicon pull-left">
+		<i class="fa fa-home"></i>
+	</div>
+	<div class="media-body">
+		<ul class="breadcrumb">
+			<li><a href="{{ URL::to('admin/dashboard') }}"><i class="glyphicon glyphicon-home"></i>@lang('messages.Admin')</a></li>
+			<li>@lang('messages.Settings')</li>
+		</ul>
+		<h4>@lang('messages.Social Media')</h4>
+	</div>
+</div><!-- media -->
+
+</div><!-- pageheader -->
+<div class="contentpanel">
+	@if (count($errors) > 0)
+	<div class="alert alert-danger">
+	<button type="button" class="close" data-dismiss="alert"><span aria-hidden="true">×</span><span class="sr-only">@lang('messages.Close')</span></button>
+		<ul>
+			@foreach ($errors->all() as $error)
+				<li>{{ $error }}</li>
+			@endforeach
+		</ul>
+	</div>
+	@endif
+	@if (Session::has('message'))
+		<div class="admin_sucess_common">
+	<div class="admin_sucess">
+	<div class="alert alert-info success">
+	<button type="button" class="close" data-dismiss="alert"><span aria-hidden="true">×</span><span class="sr-only">@lang('messages.Close')</span></button>
+		{{ Session::get('message') }}</div></div></div>
+	@endif
+       {!!Form::open(array('url' => ['admin/settings/updatemedia', $settings->id], 'method' => 'post','class'=>'tab-form attribute_form','id'=>'settings_edit_form','files' => true));!!}
+
+<div class="col-md-12">
+<div class="row panel panel-default">
+<div class="grid simple">
+	<div id="general" class="panel-heading">
+	<h4 class="panel-title">@lang('messages.Social Media')</h4>
+	<p>@lang('messages.Social Media settings')</p>
+		<div class="tools">
+			<a class="collapse" href="javascript:;"></a>
+		</div>
+	</div>
+	<ul class="nav nav-tabs"></ul>
+	<div class="panel-body">
+	<div id="facebook_page" class="form-group">
+		<label class="form-label">@lang('messages.Facebook page') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This page for facebook  updates')</span>
+		<div class="controls">
+			<input class="form-control"  type="text" value="{{ $settings->facebook_page }}" required name="facebook_page">
+		</div>
+	</div>
+
+	<div id="twitter_page" class="form-group">
+		<label class="form-label">@lang('messages.Twitter Page') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This page for twitter  updates')</span>
+		<div class="controls">
+		<input class="form-control" type="text"  value="{{ $settings->twitter_page }}" required name="twitter_page">
+		</div>
+	</div>
+
+	<div id="linkedin_page" class="form-group">
+		<label class="form-label">@lang('messages.Linkedin page') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This page for linkedin  updates')</span>
+		<div class="controls">
+		<input class="form-control" type="text"  value="{{ $settings->linkedin_page }}" required name="linkedin_page">
+		</div>
+	</div>
+
+	<div id="google_plus_page" class="form-group">
+		<label class="form-label">@lang('messages.Google plus page') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This page for google plus  updates')</span>
+		<div class="controls">
+			<input class="form-control" type="text"  value="{{ $settings->google_plus_page }}" required name="google_plus_page">
+		</div>
+	</div>
+
+	<div id="tumblr_page" class="form-group">
+		<label class="form-label">@lang('messages.Tumblr page') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This page for tumblr  updates')</span>
+		<div class="controls">
+			<input class="form-control" type="text"  value="{{ $settings->tumblr_page }}" required name="tumblr_page">
+		</div>
+	</div>
+
+	<div id="youtube_url" class="form-group">
+		<label class="form-label">@lang('messages.Youtube') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This page for youtube  updates')</span>
+		<div class="controls">
+			<input class="form-control" type="text"  value="{{ $settings->youtube_url }}" required name="youtube_url">
+		</div>
+	</div>
+	
+	<div id="android_page" class="form-group">
+		<label class="form-label">@lang('messages.Android Page') <span class="asterisk">*</span></label>
+		<span class="help"> @lang('messages.This page for android')</span>
+		<div class="controls">
+			<input class="form-control" type="text"  value="{{ $settings->android_page }}" required name="android_page">
+		</div>
+	</div>
+
+	<div id="iphone_page" class="form-group">
+		<label class="form-label">@lang('messages.Iphone') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This page for iphone')</span>
+		<div class="controls">
+			<input class="form-control" type="text"  value="{{ $settings->iphone_page }}" required name="iphone_page">
+		</div>
+	</div>
+
+
+
+	<div id="facebook_app_id" class="form-group">
+		<label class="form-label">@lang('messages.Facebook app id') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This facebook  app for user login and share feeds')</span>
+		<div class="controls">
+			<input class="form-control"  type="text" value="{{ $settings->facebook_app_id }}" required name="facebook_app_id">
+		</div>
+	</div>
+
+	<div id="facebook_secret_key" class="form-group">
+		<label class="form-label">@lang('messages.Facebook app secret key') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This key for authontication')</span>
+		<div class="controls">
+			<input class="form-control"  type="text" value="{{ $settings->facebook_secret_key }}" required name="facebook_secret_key">
+		</div>
+	</div>
+
+	<div id="twitter_api_key" class="form-group">
+		<label class="form-label">@lang('messages.Twitter api key') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This twitter  app for user login and share feeds')</span>
+		<div class="controls">
+			<input class="form-control"  type="text" value="{{ $settings->twitter_api_key }}" required name="twitter_api_key">
+		</div>
+	</div>
+
+	<div id="twitter_secret_key" class="form-group">
+		<label class="form-label">@lang('messages.Twiter app secret key') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This key for authontication')</span>
+		<div class="controls">
+			<input class="form-control"  type="text" value="{{ $settings->twitter_secret_key }}" required name="twitter_secret_key">
+		</div>
+	</div>
+
+	<div id="twitter_secret_key" class="form-group">
+		<label class="form-label">@lang('messages.Gmap api key') <span class="asterisk">*</span></label>
+		<span class="help">@lang('messages.This key for google map')</span>
+		<div class="controls">
+			<input class="form-control"  type="text" value="{{ $settings->gmap_api_key }}" required name="gmap_api_key">
+		</div>
+	</div>
+
+	<div id="analytics_code" class="form-group">
+	<label class="form-label">@lang('messages.Analytics code') <span class="asterisk">*</span></label>
+	<span class="help">@lang('messages.Google analytics code')</span>
+		<div class="controls">
+	<textarea class="form-control" style="width:100%;"  required rows="10" cols="50" name="analytics_code">{{$settings->analytics_code}}</textarea>
+		</div>
+	</div>
+
+
+</div>
+<div class="panel-footer">
+		<button class="btn btn-primary mr5" title="Update">@lang('messages.Update')</button>
+		<button type="reset" title="Cancel" class="btn btn-default" onclick="window.location='{{ url('admin/dashboard') }}'">@lang('messages.Cancel')</button>
+	</div>
+</div></div></div>
+
+ {!!Form::close();!!} 
+</div></div></div>
+
+@endsection
+

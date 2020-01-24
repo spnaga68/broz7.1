@@ -1,0 +1,68 @@
+body{ overflow-x:hidden;}
+.select_langu{ display:inline-block; margin:0 0 0 39px;}
+.breadcrumb .glyphicon-home::before {  font-size: 13px;    margin: 0 8px 0 0;}
+.dataTables_wrapper .dataTables_paginate{ margin-top:20px;}
+.dataTables_wrapper .dataTables_filter input{ width: 261px; height:38px;}
+.table .btn.btn-xs.btn-white.dropdown-toggle{ border:1px solid #e1e1e1;}
+.table .btn.btn-xs.btn-white{ border:1px solid #e1e1e1;   padding: 5px 4px;}
+.admin_login_inner .fa-envelope::before {  margin: 0 7px 0 0;}
+.login_update_new{ text-align:center;}
+.contentpanel_ourter{ display:inline-block; width:100%; height:100%; background:#1A508E;}
+.dataTables_length {    margin: 6px 0 0 20px;}
+.dataTables_length {    margin: 6px 0 0 0px;}
+div.dt-buttons{ margin: 0px 20px 0 0px;}
+.fa-envelope-o::before {font-size: 19px;    margin: 0 9px 0 0;    vertical-align: middle; color:#000;}
+.dataTables_wrapper .dataTables_info{ font-size:19px;}
+.activelogin .nav.nav-tabs.nav-line{ margin-bottom:28px; margin-top:28px;}
+.activelogin .profile_bg{ margin-top:40px;}
+.activelogin .nav-tabs > li.active > a, .nav-tabs > li.active > a:hover, .nav-tabs > li.active > a:focus{ border:none;}
+.activelogin .nav-tabs > li.active > a, .nav-tabs > li.active > a:hover, .nav-tabs > li.active > a:focus{ border:none!important;}
+.activelogin .pagination > .active > a, .pagination > .active > span, .pagination > .active > a:hover, .pagination > .active > span:hover, .pagination > .active > a:focus, .pagination > .active > span:focus{ background:#1A508E!important;}
+.activelogin .pdb10 .label{ font-size:15px;}
+.asterisk{ color:red;}
+.nav-pills > li > a{ border-radius: 0px!important;}
+.admin_sucess{ margin:0 auto; width:800px;}
+.admin_sucess_common .alert-info{background-color: #e91e62;    border-color: #e91e62;  color: #fff;}
+.admin_sucess_common .alert{border-radius: 4px;display: inline-block;    margin: 15px 0 0;    padding: 10px;    width: 100%;}.admin_sucess_common .alert .close {color: #fff;    font-size: 23px;    opacity: 5;}.btn-primary:hover, .btn-primary:focus, .btn-primary:active, .btn-primary.active, .open > .dropdown-toggle.btn-primary{  background:#18C47C!important; border:1px solid #18C47C!important;}
+.collapsed .header-left .logo{ background:url("../images/logo/159_81/responsive_logo.png?") no-repeat;width:50px; height:50px;  left: 199px;top: 9px !important;}
+.calender_common {    position: absolute;    right: 16px;   top: 0; width:50px;}
+.tab-pane.active .input-group-addon{padding: 9px 12px;}
+.top_margin{ display:inline-block;margin-top:18px;}
+.highcharts-credits{display:none;}
+.padding0{ padding:0px!important;}
+.padding_left0{padding-left:0px!important;}
+.admin_dasbord_home .table tr th{ text-align:center;font-size:17px; vertical-align:middle; padding:15px 0;}
+.admin_dasbord_home .table tr td{ text-align:center;vertical-align:middle; font-size:18px;}
+.admin_dasbord_home .table tr td h3{ text-align:center; display:inline-block; padding:7px 29px; background:#e1e1e1; border-radius:5px; margin:0px;vertical-align:middle;}
+.admin_dasbord_home {display: inline-block;padding: 0 15px;width: 100%;margin-top: 20px;}
+.admin_logo_chngs .media-list{height: 500px;list-style: outside none none;overflow-y: scroll;padding-left: 0;}
+
+.error_data.error{background: red;color: #fff;padding: 7px 49px;margin: 0 0 0 15px;}
+.dataTables_wrapper {overflow-x: auto;overflow-y: hidden;}
+
+.dataTables_wrapper {
+   overflow-x: auto;
+   overflow-y: hidden;
+}
+.vender_scroll_sec{display:inline-block; width:100%; overflow-x:auto;}
+.radio_new_button input{ display:inline-block; width:auto;}
+.pading_left0{ padding-left:0px!important;}
+.radio_new_button label{ width:100%;}
+.radio_new_button p{ display:inline-block; margin:0 0px 0 7px;}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

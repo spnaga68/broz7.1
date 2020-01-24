@@ -1,0 +1,275 @@
+@extends('layouts.vendors')
+@section('content')
+<script type="text/javascript" src="{{ URL::asset('assets/admin/base/js/highcharts.js') }}"></script>
+<script type="text/javascript" src="{{ URL::asset('assets/admin/base/js/funnel.js') }}"></script>
+<script type="text/javascript" src="{{ URL::asset('assets/admin/base/js/exporting.js') }}"></script>
+<script type="text/javascript" src="{{ URL::asset('assets/admin/base/js/data.js') }}"></script>
+<script type="text/javascript" src="{{ URL::asset('assets/admin/base/js/drilldown.js') }}"></script>
+@if (Session::has('message'))
+	<div class="admin_sucess_common">
+		<div class="admin_sucess">
+			<div class="alert alert-info">
+				<button type="button" class="close" data-dismiss="alert"><span aria-hidden="true">×</span><span class="sr-only">Close</span></button>{{ Session::get('message') }}
+			</div>
+		</div>
+	</div>
+@endif
+
+<div class="pageheader">
+	<div class="media">
+		<div class="pageicon pull-left">
+			<i class="fa fa-home"></i>
+		</div>
+		<div class="media-body">
+			<ul class="breadcrumb">
+				<li><a href="{{ URL::to('vendors/dashboard') }}"><i class="glyphicon glyphicon-home"></i>@lang('messages.Vendors')</a></li>
+				<li>@lang('messages.Dashboard')</li>
+			</ul>
+			<h4>@lang('messages.Dashboard')</h4>
+		</div>
+	</div><!-- media -->
+</div><!-- pageheader -->
+
+<div class="contentpanel">
+	<a href="<?php echo URL::to("vendor/outlets");?>">
+		<div class="col-md-3">
+			<div class="panel panel-dark panel_orange noborder">
+				<div class="panel-heading noborder">
+					<div class="panel-btns">
+					</div><!-- panel-btns -->
+					<div class="panel-icon"><i class="fa fa-building"></i></div>
+					<div class="media-body">
+						<h5 class="md-title nomargin">@lang('messages.Outlets')</h5>
+						<h1 class="mt5"><?php echo count($outlets); ?></h1>
+					</div><!-- media-body -->
+				</div><!-- panel-body -->
+			</div><!-- panel -->
+		</div><!-- col-md-4 -->
+	</a>
+
+	<a href="<?php echo URL::to("vendor/outletmanagers");?>">
+		<div class="col-md-3">
+			<div class="panel panel-dark panel_orange noborder">
+				<div class="panel-heading noborder">
+					<div class="panel-btns">
+					</div><!-- panel-btns -->
+					<div class="panel-icon"><i class="fa fa-child"></i></div>
+					<div class="media-body">
+						<h5 class="md-title nomargin">@lang('messages.Outlet Managers')</h5>
+						<h1 class="mt5"><?php echo count($outlet_managers); ?></h1>
+					</div><!-- media-body -->
+				</div><!-- panel-body -->
+			</div><!-- panel -->
+		</div><!-- col-md-4 -->
+	</a>
+
+	<a href="<?php echo URL::to("vendor/products");?>">
+		<div class="col-md-3">
+			<div class="panel panel-dark panel_orange noborder">
+				<div class="panel-heading noborder">
+					<div class="panel-btns">
+					</div><!-- panel-btns -->
+					<div class="panel-icon"><i class="fa fa-gift"></i></div>
+					<div class="media-body">
+						<h5 class="md-title nomargin">@lang('messages.Products')</h5>
+						<h1 class="mt5"><?php echo $products->product_count; ?></h1>
+					</div><!-- media-body -->
+				</div><!-- panel-body -->
+			</div><!-- panel -->
+		</div><!-- col-md-4 -->
+	</a>
+
+	<a href="<?php echo URL::to("vendors/orders/index");?>">
+		<div class="col-md-3">
+			<div class="panel panel-dark panel_orange noborder">
+				<div class="panel-heading noborder">
+					<div class="panel-btns">
+					</div><!-- panel-btns -->
+					<div class="panel-icon"><i class="fa fa-shopping-cart"></i></div>
+					<div class="media-body">
+						<h5 class="md-title nomargin">@lang('messages.Orders')</h5>
+						<h1 class="mt5"><?php echo $orders->orders_count; ?></h1>
+					</div><!-- media-body -->
+				</div><!-- panel-body -->
+			</div><!-- panel -->
+		</div><!-- col-md-4 -->
+	</a>
+	<a href="<?php echo URL::to("vendors/reviews");?>">
+		<div class="col-md-3">
+			<div class="panel panel-dark panel_orange noborder">
+				<div class="panel-heading noborder">
+					<div class="panel-btns">
+					</div><!-- panel-btns -->
+					<div class="panel-icon"><i class="fa fa-star"></i></div>
+					<div class="media-body">
+						<h5 class="md-title nomargin">@lang('messages.Reviews Rating')</h5>
+						<h1 class="mt5"><?php echo number_format($ratings,1); ?></h1>
+					</div><!-- media-body -->
+				</div><!-- panel-body -->
+			</div><!-- panel -->
+		</div><!-- col-md-4 -->
+	</a>
+	<?php if(count($order_status_count) > 0 ) { ?>
+		<div id="container" style="min-width: 410px; max-width: 750px;"></div>
+		<script type="text/javascript">
+			$(function () {
+				$('#container').highcharts({
+					chart: {
+						type: 'funnel',
+						marginRight: 100
+					},
+					title: {
+						text: '<?php echo trans('messages.Undelivered order status');?>',
+						x: -50
+					},
+					plotOptions: {
+						series: {
+							dataLabels: {
+								enabled: true,
+								format: '<b>{point.name}</b> ({point.y:,.0f})',
+								color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black',
+								softConnector: true
+							},
+							neckWidth: '30%',
+							neckHeight: '25%'
+							//-- Other available options
+							// height: pixels or percent
+							// width: pixels or percent
+						}
+					},
+					legend: {
+						enabled: false
+					},
+					series: [{
+						name: '<?php echo trans('messages.Order Status');?>',
+						data: [
+							['Initiated Order', <?php echo $order_status_count[0]->oreder_initiated;?>],
+							['Processed Order', <?php echo $order_status_count[0]->oreder_processed;?>],
+							['Shipped Order', <?php echo $order_status_count[0]->oreder_shipped;?>],
+							['Packed Order', <?php echo $order_status_count[0]->oreder_packed;?>],
+							['Dispatched Order', <?php echo $order_status_count[0]->oreder_dispatched;?>],
+						]
+					}]
+				});
+			});
+		</script>
+	<?php } ?>
+	<?php if(count($year_transaction) > 0 ) {?>
+		<div id="container1"></div>
+		<script type="text/javascript">
+			$(function () {
+				// Create the chart
+				$('#container1').highcharts({
+					chart: {
+						type: 'column'
+					},
+					title: {
+						text: '<?php echo trans("messages.Monthly transaction report in ").$currency_symbol;?>'
+					},
+					xAxis: {
+						type: 'category'
+					},
+					yAxis: {
+						title: {
+							text: '<?php echo trans("messages.Total transaction amount");?>'
+						}
+					},
+					legend: {
+						enabled: false
+					},
+					plotOptions: {
+						series: {
+							borderWidth: 0,
+							dataLabels: {
+								enabled: true,
+								format: '{point.y}'
+							}
+						}
+					},
+
+					tooltip: {
+						headerFormat: '<span style="font-size:11px">{series.name}</span><br>',
+						pointFormat: '<span style="color:{point.color}">{point.name}</span>: <b>{point.y}</b><br/>'
+					},
+
+					series: [{
+						name: 'Transaction Amount',
+						colorByPoint: true,
+						data: [
+							<?php foreach($year_transaction as $y) { ?>
+								{
+									name: '<?php echo $y->month_string;?>',
+									y: <?php echo ($y->total_amount != '')?$y->total_amount:0;?>,
+									drilldown: '<?php echo $y->month_string;?>'
+								},
+						<?php } ?>
+						]
+					}]
+				});
+			});
+		</script>
+	<?php } ?>
+	<?php if(count($store_transaction_count) > 0) { ?>
+		<div id="container3"></div>
+		<script type="text/javascript">
+			$(function () {
+				// Radialize the colors
+				Highcharts.getOptions().colors = Highcharts.map(Highcharts.getOptions().colors, function (color) {
+					return {
+						radialGradient: {
+							cx: 0.5,
+							cy: 0.3,
+							r: 0.7
+						},
+						stops: [
+							[0, color],
+							[1, Highcharts.Color(color).brighten(-0.3).get('rgb')] // darken
+						]
+					};
+				});
+
+				// Build the chart
+				$('#container3').highcharts({
+					chart: {
+						plotBackgroundColor: null,
+						plotBorderWidth: null,
+						plotShadow: false,
+						type: 'pie'
+					},
+					title: {
+						text: '<?php echo trans('messages.Outlets Transactions');?>'
+					},
+					tooltip: {
+						pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
+					},
+					plotOptions: {
+						pie: {
+							allowPointSelect: true,
+							cursor: 'pointer',
+							dataLabels: {
+								enabled: true,
+								format: '<b>{point.name}</b>: {point.percentage:.1f} %',
+								style: {
+									color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
+								},
+								connectorColor: 'silver'
+							}
+						}
+					},
+					series: [{
+						name: '<?php echo trans('messages.Outlets');?>',
+						data: [
+							<?php foreach($store_transaction_count as $store) {?>
+								{
+									name: '<?php echo ucfirst($store->outlet_name);?>',
+									y: <?php echo $store->total;?>
+								},
+							<?php } ?>
+						]
+					}]
+				});
+			});
+		</script>
+	<?php } ?>
+</div><!-- row -->
+@endsection

@@ -1,0 +1,8 @@
+# Disallow all crawlers access.
+
+User-agent: *
+
+Disallow: /admin/*
+Disallow: /*.inc$
+Disallow: /*.css$
+Disallow: /*.php$
