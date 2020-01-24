@@ -23,7 +23,7 @@ use App;
 use Yajra\Datatables\Datatables;
 use URL;
 
-
+//git commit
 class Category extends Controller
 {
 
